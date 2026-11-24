@@ -25,7 +25,6 @@ builder.Services.AddRebus(configure => configure
     // The orchestrator reads both registration commands and service replies from this queue.
     .Transport(transport => transport.UseAzureStorageQueues(storage, QueueNames.Orchestrator))
     .Routing(RebusRoutes.Configure)
-    .Serialization(StatusUpdateCompatibility.Configure)
     // Rebus creates both tables at startup. Sagas holds serialized workflow state and SagaIndex
     // maps a correlation value to that state so replies can resume a workflow after a restart.
     .Sagas(sagas => sagas.StoreInSqlServer(sql, "Sagas", "SagaIndex"))
