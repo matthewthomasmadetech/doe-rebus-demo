@@ -1,0 +1,48 @@
+services:
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.35.0
+    # The host applications use only the Queue endpoint. Rebus handles queue creation.
+    command: azurite-queue --queueHost 0.0.0.0 --location /data --silent --skipApiVersionCheck
+    ports:
+      - "127.0.0.1:10001:10001"
+    volumes:
+      - azurite-data:/data
+
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-RebusDemo_local2022!}
+    ports:
+      - "127.0.0.1:1433:1433"
+    volumes:
+      - sqlserver-data:/var/opt/mssql
+    # Verify SQL Server can authenticate and run a query before database initialization.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - '/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$$MSSQL_SA_PASSWORD" -C -b -Q "SELECT 1" >/dev/null'
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 10s
+
+  sqlserver-init:
+    # This one-shot service creates the database. The orchestrator creates the saga tables through Rebus.
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-RebusDemo_local2022!}
+    entrypoint:
+      - /bin/bash
+      - -ec
+      - |
+        /opt/mssql-tools18/bin/sqlcmd -S sqlserver -U sa -P "$$MSSQL_SA_PASSWORD" -C -b \
+          -Q "IF DB_ID(N'RebusDemo') IS NULL CREATE DATABASE [RebusDemo];"
+
+volumes:
+  azurite-data:
+  sqlserver-data:
