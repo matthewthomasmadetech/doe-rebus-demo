@@ -57,7 +57,7 @@ public sealed class DashboardStore(string connectionString)
     }
 
     /// <summary>Writes the final outcome once, including when Rebus redelivers the final reply.</summary>
-    public async Task RecordCompletionAsync(LearnerRegistrationSagaData saga, AssessmentScheduledV1 message)
+    public async Task RecordCompletionAsync(LearnerRegistrationSagaData saga, AssessmentScheduled message)
     {
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync();

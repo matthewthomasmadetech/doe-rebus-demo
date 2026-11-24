@@ -18,10 +18,10 @@ public sealed class CreateLearnerHandler(IBus bus, ILogger<CreateLearnerHandler>
         // One demo registration per workflow. A redelivery produces the same learner ID.
         var learnerId = $"LRN-{message.CorrelationId:N}";
 
-        // The shared route for LearnerCreatedV1 sends the result back to the orchestrator.
-        await bus.Send(new LearnerCreatedV1(message.CorrelationId, learnerId));
+        // The shared route for LearnerCreated sends the result back to the orchestrator.
+        await bus.Send(new LearnerCreated(message.CorrelationId, learnerId));
         logger.LogInformation("Handled {Command} -> sent {Reply}\n    Learner {LearnerId} | Correlation {CorrelationId}",
-            nameof(CreateLearnerV1), nameof(LearnerCreatedV1), learnerId, message.CorrelationId);
+            nameof(CreateLearnerV1), nameof(LearnerCreated), learnerId, message.CorrelationId);
     }
 
     /// <summary>Reports a failed command to its saga and dead-letters the original command.</summary>
@@ -30,9 +30,9 @@ public sealed class CreateLearnerHandler(IBus bus, ILogger<CreateLearnerHandler>
         var correlationId = failure.Message.CorrelationId;
         if (correlationId != Guid.Empty)
         {
-            await bus.Send(new LearnerCreationFailedV1(correlationId, "Manage could not create the learner."));
+            await bus.Send(new LearnerCreationFailed(correlationId, "Manage could not create the learner."));
             logger.LogWarning("Failed {Command} -> queued {Reply}\n    Correlation {CorrelationId}",
-                nameof(CreateLearnerV1), nameof(LearnerCreationFailedV1), correlationId);
+                nameof(CreateLearnerV1), nameof(LearnerCreationFailed), correlationId);
         }
 
         await bus.Advanced.TransportMessage.Deadletter(failure.ErrorDescription);

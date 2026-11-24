@@ -49,10 +49,10 @@ public sealed class CreateLearningPlanHandler(
             "Independent practice and reflection"
         ];
 
-        await bus.Send(new LearningPlanCreatedV1(message.CorrelationId, message.LearnerId, planId, modules));
+        await bus.Send(new LearningPlanCreated(message.CorrelationId, message.LearnerId, planId, modules));
         logger.LogInformation("Handled {Command} -> sent {Reply}\n" +
             "    Plan {LearningPlanId} ({ModuleCount} modules, {PlanFormat})\n    Correlation {CorrelationId} | Message {MessageId}",
-            nameof(CreateLearningPlanV1), nameof(LearningPlanCreatedV1), planId, modules.Length, format,
+            nameof(CreateLearningPlanV1), nameof(LearningPlanCreated), planId, modules.Length, format,
             message.CorrelationId, messageId);
     }
 
@@ -62,9 +62,9 @@ public sealed class CreateLearningPlanHandler(
         var correlationId = failure.Message.CorrelationId;
         if (correlationId != Guid.Empty)
         {
-            await bus.Send(new LearningPlanCreationFailedV1(correlationId, "Develop could not create the learning plan."));
+            await bus.Send(new LearningPlanCreationFailed(correlationId, "Develop could not create the learning plan."));
             logger.LogWarning("Failed {Command} -> queued {Reply}\n    Correlation {CorrelationId}",
-                nameof(CreateLearningPlanV1), nameof(LearningPlanCreationFailedV1), correlationId);
+                nameof(CreateLearningPlanV1), nameof(LearningPlanCreationFailed), correlationId);
         }
 
         await bus.Advanced.TransportMessage.Deadletter(failure.ErrorDescription);

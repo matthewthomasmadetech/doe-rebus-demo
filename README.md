@@ -22,16 +22,16 @@ All four services load the same message-to-queue map at startup. Each service us
 | Manage | [Program.cs](src/Manage/Program.cs) | `manage` | Creates demo learner IDs for the saga and exposes [`POST /learners/remind`](src/Manage/SendLearnerReminderEndpoint.cs). |
 | Develop | [Program.cs](src/Develop/Program.cs) | `develop` | Builds [learning plans](src/Develop/CreateLearningPlanHandler.cs) and handles [standalone reminders](src/Develop/SendLearnerReminderHandler.cs). |
 | Take | [Program.cs](src/Take/Program.cs) | `take` | Handles [`ScheduleAssessmentV1`](src/Take/ScheduleAssessmentHandler.cs) and returns an online assessment slot. |
-| Contracts | Shared library | — | Defines the versioned [commands and replies](src/Contracts/LearnerRegistrationV1.cs) and [queue names](src/Contracts/QueueNames.cs). |
+| Contracts | Shared library | — | Defines [versioned commands](src/Contracts/LearnerRegistrationV1.cs), [status updates](src/Contracts/LearnerRegistrationStatusUpdates.cs), and [queue names](src/Contracts/QueueNames.cs). |
 | Messaging | Shared library | — | Registers [outgoing Rebus routes](src/Messaging/RebusRoutes.cs) for all four services. |
 
 ## Extend the demo with Rebus
 
-A **contract** is the C# type shared by the sender and receiver. A **command** asks a service to do work, and a **reply** reports the result. A Welcome service that prepares a learner's welcome pack would use two message types and its own queue.
+A **contract** is the C# type shared by the sender and receiver. A **command** asks a service to do work. A **status update** reports the outcome. Commands use a version suffix and status updates use names such as `LearnerCreated` or `LearnerCreationFailed`. During a rolling deployment, update the orchestrator first so it can read both current and previously queued status names. [Compatibility configuration](src/Orchestrator/StatusUpdateCompatibility.cs)
 
-1. **Define the messages.** Add records such as `PrepareWelcomePackV1` and `WelcomePackPreparedV1` to the shared Contracts project. Give both a `CorrelationId` if they belong to the saga. Use a new type such as `PrepareWelcomePackV2` for a breaking change and keep the `V1` handler available while old messages are queued. [Existing contracts](src/Contracts/LearnerRegistrationV1.cs)
+1. **Define the messages.** Add records such as the command `PrepareWelcomePackV1` and the status update `WelcomePackPrepared` to the shared Contracts project. Give both a `CorrelationId` if they belong to the saga. Use a new command type such as `PrepareWelcomePackV2` for a breaking request change and keep the `V1` handler available while old commands are queued. [Existing commands](src/Contracts/LearnerRegistrationV1.cs)
 2. **Add the receiver.** Add a .NET worker to `RebusDemo.slnx` and reference `Contracts` and `Messaging`. In `AddRebus`, use `UseAzureStorageQueues` with a new queue name from `QueueNames` and load the shared map with `.Routing(RebusRoutes.Configure)`. Implement `IHandleMessages<PrepareWelcomePackV1>` and register the handler with `AddRebusHandler<PrepareWelcomePackHandler>()`. To add a command to an existing service, register its handler there and use the existing queue. [Worker setup example](src/Develop/Program.cs)
-3. **Route and send.** In `RebusRoutes`, map `PrepareWelcomePackV1` to `QueueNames.Welcome` and `WelcomePackPreparedV1` to `QueueNames.Orchestrator`. Send each message with `IBus.Send` and carry the same `CorrelationId` into the reply. To make the saga wait for the reply, implement `IHandleMessages<WelcomePackPreparedV1>` on the saga, map it in `CorrelateMessages`, and advance the stage in `Handle`. [Shared routes](src/Messaging/RebusRoutes.cs) and [saga example](src/Orchestrator/LearnerRegistrationSaga.cs)
+3. **Route and send.** In `RebusRoutes`, map `PrepareWelcomePackV1` to `QueueNames.Welcome` and `WelcomePackPrepared` to `QueueNames.Orchestrator`. Send each message with `IBus.Send` and carry the same `CorrelationId` into the status update. To make the saga wait for it, implement `IHandleMessages<WelcomePackPrepared>` on the saga, map it in `CorrelateMessages`, and advance the stage in `Handle`. [Shared routes](src/Messaging/RebusRoutes.cs) and [saga example](src/Orchestrator/LearnerRegistrationSaga.cs)
 
 ## Run locally
 
@@ -81,17 +81,17 @@ Set `Logging__Console__FormatterName=json` when launching a service to see the s
 | --- | --- | --- |
 | HTTP endpoint → Orchestrator | `RegisterLearnerV1` | `AwaitingLearner` |
 | Orchestrator → Manage | `CreateLearnerV1` | |
-| Manage → Orchestrator | `LearnerCreatedV1` | `AwaitingLearningPlan` |
+| Manage → Orchestrator | `LearnerCreated` | `AwaitingLearningPlan` |
 | Orchestrator → Develop | `CreateLearningPlanV1` | |
-| Develop → Orchestrator | `LearningPlanCreatedV1` | `AwaitingAssessment` |
+| Develop → Orchestrator | `LearningPlanCreated` | `AwaitingAssessment` |
 | Orchestrator → Take | `ScheduleAssessmentV1` | |
-| Take → Orchestrator | `AssessmentScheduledV1` | `Completed` |
+| Take → Orchestrator | `AssessmentScheduled` | `Completed` |
 
 The final log includes the learner, plan and assessment IDs and the assessment's UTC time. The dashboard shows the saved completed outcome after Rebus removes the live saga and its correlation index.
 
 ## Try message validation
 
-The shared contracts use Data Annotations for rules such as a valid email, a 160-character learning goal limit, non-default IDs and timestamps, and a learning-plan reply with at least one module. Each application bus runs those rules after deserialization and before dispatching the message to its handler. [Registration contracts](src/Contracts/LearnerRegistrationV1.cs) · [Rebus validation step](src/Messaging/RebusMessageValidation.cs)
+The shared contracts use Data Annotations for rules such as a valid email, a 160-character learning goal limit, non-default IDs and timestamps, and a learning-plan reply with at least one module. Each application bus runs those rules after deserialization and before dispatching the message to its handler. [Registration commands](src/Contracts/LearnerRegistrationV1.cs) · [Status updates](src/Contracts/LearnerRegistrationStatusUpdates.cs) · [Rebus validation step](src/Messaging/RebusMessageValidation.cs)
 
 `preferredFormat` is optional. Leave it out or set it to `null` for the default `online` plan. To request `workbook`, send the sample below and look for `workbook` in Develop's log.
 
@@ -135,7 +135,7 @@ When Manage sends `SendLearnerReminderV1`, Rebus looks up `QueueNames.Develop` i
 
 1. Stop Develop with `Ctrl+C` and leave the other apps and both containers running.
 2. Submit a registration. Wait for the orchestrator to log `AwaitingLearningPlan` and keep the returned correlation ID. Develop's command is queued while the service is stopped.
-3. Stop the orchestrator with `Ctrl+C`. Start Develop and wait for it to log that it sent `LearningPlanCreatedV1` for that correlation ID.
+3. Stop the orchestrator with `Ctrl+C`. Start Develop and wait for it to log that it sent `LearningPlanCreated` for that correlation ID.
 4. Restart the orchestrator with its original command. Rebus consumes the queued reply, restores the saga from SQL Server and advances to `AwaitingAssessment`. The same correlation ID reaches `Completed` without another HTTP request.
 
 To inspect durable state after the orchestrator has stopped in step 3, run this in another terminal. The first query shows the saga's `Stage` value of `2` (`AwaitingLearningPlan`). The second shows the indexed correlation ID. Both rows disappear when that saga completes.
@@ -169,15 +169,15 @@ curl -i http://127.0.0.1:5080/learners/register \
   --data-binary @samples/register-learner-failure.json
 ```
 
-The sample sets `learningGoal` to `DEMO_FAIL_LEARNING_PLAN`. Develop throws on every delivery of that command. After five attempts, Rebus dispatches it to Develop's `IHandleMessages<IFailed<CreateLearningPlanV1>>` handler. The handler sends `LearningPlanCreationFailedV1` to the orchestrator and dead-letters the original command to `rebus-errors` with the exception details.
+The sample sets `learningGoal` to `DEMO_FAIL_LEARNING_PLAN`. Develop throws on every delivery of that command. After five attempts, Rebus dispatches it to Develop's `IHandleMessages<IFailed<CreateLearningPlanV1>>` handler. The handler sends `LearningPlanCreationFailed` to the orchestrator and dead-letters the original command to `rebus-errors` with the exception details.
 
-The API returns `202 Accepted` when it queues the registration. Use its `correlationId` to find the eventual outcome. The orchestrator logs `AwaitingLearningPlan -> Failed on LearningPlanCreationFailedV1` and saves `Failed`, the previous stage, and the reason in SQL Server. `Failed` is terminal in this demo. Submit a fresh registration after correcting the cause.
+The API returns `202 Accepted` when it queues the registration. Use its `correlationId` to find the eventual outcome. The orchestrator logs `AwaitingLearningPlan -> Failed on LearningPlanCreationFailed` and saves `Failed`, the previous stage, and the reason in SQL Server. `Failed` is terminal in this demo. Submit a fresh registration after correcting the cause.
 
 | Service | Failure reply after exhausted retries |
 | --- | --- |
-| Manage | `LearnerCreationFailedV1` |
-| Develop | `LearningPlanCreationFailedV1` |
-| Take | `AssessmentSchedulingFailedV1` |
+| Manage | `LearnerCreationFailed` |
+| Develop | `LearningPlanCreationFailed` |
+| Take | `AssessmentSchedulingFailed` |
 
 Inspect failed registrations in SQL Server. `Stage = 5` means `Failed` and `FailedAtStage = 2` means it failed while awaiting the learning plan.
 
