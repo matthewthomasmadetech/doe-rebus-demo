@@ -1,15 +1,20 @@
 # Rebus learner registration demo
 
-Four .NET 10 applications run independently on the host. Rebus routes every command and reply through Azure Storage Queues in Azurite. SQL Server 2022 stores the orchestrator's in-progress saga state and correlation index.
+## Architecture
 
-| Application | Input queue | Role |
-| --- | --- | --- |
-| Orchestrator | `orchestrator` | Accepts registrations over HTTP and coordinates the saga |
-| Manage | `manage` | Creates a demo learner registration |
-| Develop | `develop` | Builds a learning plan around the learner's goal |
-| Take | `take` | Schedules an online diagnostic assessment |
+Four .NET 10 applications run independently on the host. [Docker Compose](docker-compose.yml) runs Azurite for Azure Storage Queues and SQL Server 2022 for the orchestrator's saga state and correlation index.
 
-The `Contracts` project defines the versioned commands and replies shared by the four applications.
+The workflow starts at [`POST /learners/register`](src/Orchestrator/RegisterLearnerEndpoint.cs). The endpoint queues a registration command and returns `202 Accepted` with a correlation ID. The Rebus saga sends commands to Manage, Develop and Take in sequence, advancing after each service sends a reply to the orchestrator queue. Every command and reply carries the same correlation ID so Rebus can load the correct saga from SQL Server, even after an orchestrator restart.
+
+## Projects and entry points
+
+| Project | Startup | Input queue | Responsibility |
+| --- | --- | --- | --- |
+| Orchestrator | [Program.cs](src/Orchestrator/Program.cs) | `orchestrator` | Hosts the HTTP API and the [registration saga](src/Orchestrator/LearnerRegistrationSaga.cs). |
+| Manage | [Program.cs](src/Manage/Program.cs) | `manage` | Handles [`CreateLearnerV1`](src/Manage/CreateLearnerHandler.cs) and returns a demo learner ID. |
+| Develop | [Program.cs](src/Develop/Program.cs) | `develop` | Handles [`CreateLearningPlanV1`](src/Develop/CreateLearningPlanHandler.cs) and builds a plan around the learner's goal. |
+| Take | [Program.cs](src/Take/Program.cs) | `take` | Handles [`ScheduleAssessmentV1`](src/Take/ScheduleAssessmentHandler.cs) and returns an online assessment slot. |
+| Contracts | Shared library | — | Defines the versioned [commands and replies](src/Contracts/LearnerRegistrationV1.cs) and [queue names](src/Contracts/QueueNames.cs). |
 
 ## Run locally
 
