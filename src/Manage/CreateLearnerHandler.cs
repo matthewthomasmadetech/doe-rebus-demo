@@ -1,5 +1,7 @@
 using Rebus.Bus;
+using Rebus.Exceptions;
 using Rebus.Handlers;
+using Rebus.Retry.Simple;
 using RebusDemo.Contracts;
 
 namespace RebusDemo.Manage;
@@ -8,7 +10,7 @@ namespace RebusDemo.Manage;
 /// Handles learner creation commands received by Manage and sends the result over Rebus.
 /// </summary>
 public sealed class CreateLearnerHandler(IBus bus, ILogger<CreateLearnerHandler> logger)
-    : IHandleMessages<CreateLearnerV1>
+    : IHandleMessages<CreateLearnerV1>, IHandleMessages<IFailed<CreateLearnerV1>>
 {
     /// <summary>Generates a demo learner ID and sends it back with the same workflow correlation ID.</summary>
     public async Task Handle(CreateLearnerV1 message)
@@ -16,9 +18,19 @@ public sealed class CreateLearnerHandler(IBus bus, ILogger<CreateLearnerHandler>
         // One demo registration per workflow. A redelivery produces the same learner ID.
         var learnerId = $"LRN-{message.CorrelationId:N}";
 
-        // The outgoing message type selects the queue via the route in Manage's Program.cs.
+        // The shared route for LearnerCreatedV1 sends the result back to the orchestrator.
         await bus.Send(new LearnerCreatedV1(message.CorrelationId, learnerId));
         logger.LogInformation("Handled {Command} -> sent {Reply}\n    Learner {LearnerId} | Correlation {CorrelationId}",
             nameof(CreateLearnerV1), nameof(LearnerCreatedV1), learnerId, message.CorrelationId);
+    }
+
+    /// <summary>Reports exhausted retries to the saga and dead-letters the original command.</summary>
+    public async Task Handle(IFailed<CreateLearnerV1> failure)
+    {
+        var correlationId = failure.Message.CorrelationId;
+        await bus.Send(new LearnerCreationFailedV1(correlationId, "Manage could not create the learner."));
+        await bus.Advanced.TransportMessage.Deadletter(failure.ErrorDescription);
+        logger.LogWarning("Exhausted retries for {Command} -> queued {Reply}\n    Correlation {CorrelationId}",
+            nameof(CreateLearnerV1), nameof(LearnerCreationFailedV1), correlationId);
     }
 }

@@ -4,25 +4,30 @@
 
 Four .NET 10 applications run independently on the host. [Docker Compose](docker-compose.yml) runs Azurite for Azure Storage Queues and SQL Server 2022 for the orchestrator's saga state and correlation index.
 
-The workflow starts at [`POST /learners/register`](src/Orchestrator/RegisterLearnerEndpoint.cs). The endpoint queues a registration command and returns `202 Accepted` with a correlation ID. The Rebus saga sends commands to Manage, Develop and Take in sequence, advancing after each service sends a reply to the orchestrator queue. Every command and reply carries the same correlation ID so Rebus can load the correct saga from SQL Server, even after an orchestrator restart.
+The workflow starts at [`POST /learners/register`](src/Orchestrator/RegisterLearnerEndpoint.cs). The endpoint queues a registration command and returns `202 Accepted` with a correlation ID. The Rebus saga sends commands to Manage, Develop and Take in sequence, advancing after each service sends a reply to the orchestrator queue. Every registration command and reply carries the same correlation ID so Rebus can load the correct saga from SQL Server, even after an orchestrator restart.
+
+Manage also sends a standalone reminder command directly to Develop's queue. Develop handles it using a regular Rebus message handler. [Send a standalone reminder](#send-a-standalone-reminder)
+
+All four services load the same message-to-queue map at startup. Each service uses the map when sending and selects its own input queue and handlers. [Shared Rebus routes](src/Messaging/RebusRoutes.cs)
 
 ## Projects and entry points
 
 | Project | Startup | Input queue | Responsibility |
 | --- | --- | --- | --- |
 | Orchestrator | [Program.cs](src/Orchestrator/Program.cs) | `orchestrator` | Hosts the HTTP API and the [registration saga](src/Orchestrator/LearnerRegistrationSaga.cs). |
-| Manage | [Program.cs](src/Manage/Program.cs) | `manage` | Handles [`CreateLearnerV1`](src/Manage/CreateLearnerHandler.cs) and returns a demo learner ID. |
-| Develop | [Program.cs](src/Develop/Program.cs) | `develop` | Handles [`CreateLearningPlanV1`](src/Develop/CreateLearningPlanHandler.cs) and builds a plan around the learner's goal. |
+| Manage | [Program.cs](src/Manage/Program.cs) | `manage` | Creates demo learner IDs for the saga and exposes [`POST /learners/remind`](src/Manage/SendLearnerReminderEndpoint.cs). |
+| Develop | [Program.cs](src/Develop/Program.cs) | `develop` | Builds [learning plans](src/Develop/CreateLearningPlanHandler.cs) and handles [standalone reminders](src/Develop/SendLearnerReminderHandler.cs). |
 | Take | [Program.cs](src/Take/Program.cs) | `take` | Handles [`ScheduleAssessmentV1`](src/Take/ScheduleAssessmentHandler.cs) and returns an online assessment slot. |
 | Contracts | Shared library | — | Defines the versioned [commands and replies](src/Contracts/LearnerRegistrationV1.cs) and [queue names](src/Contracts/QueueNames.cs). |
+| Messaging | Shared library | — | Registers [outgoing Rebus routes](src/Messaging/RebusRoutes.cs) for all four services. |
 
 ## Extend the demo with Rebus
 
 A **contract** is the C# type shared by the sender and receiver. A **command** asks a service to do work, and a **reply** reports the result. A Welcome service that prepares a learner's welcome pack would use two message types and its own queue.
 
 1. **Define the messages.** Add records such as `PrepareWelcomePackV1` and `WelcomePackPreparedV1` to the shared Contracts project. Give both a `CorrelationId` if they belong to the saga. Use a new type such as `PrepareWelcomePackV2` for a breaking change and keep the `V1` handler available while old messages are queued. [Existing contracts](src/Contracts/LearnerRegistrationV1.cs)
-2. **Add the receiver.** Add a .NET worker to `RebusDemo.slnx` and reference `Contracts`. In `AddRebus`, use `UseAzureStorageQueues` with a new queue name from `QueueNames`. Implement `IHandleMessages<PrepareWelcomePackV1>` and register the handler with `AddRebusHandler<PrepareWelcomePackHandler>()`. To add a command to an existing service, register its handler there and use the existing queue. [Worker setup example](src/Develop/Program.cs)
-3. **Route and send.** In the sending app, add a type-based route such as `.Map<PrepareWelcomePackV1>(QueueNames.Welcome)` and send the command with `IBus.Send`. In the receiving service, map the reply type back to the orchestrator and send it with the same `CorrelationId`. To make the saga wait for the reply, implement `IHandleMessages<WelcomePackPreparedV1>` on the saga, map it in `CorrelateMessages`, and advance the stage in `Handle`. [Sender setup](src/Orchestrator/Program.cs) and [saga example](src/Orchestrator/LearnerRegistrationSaga.cs)
+2. **Add the receiver.** Add a .NET worker to `RebusDemo.slnx` and reference `Contracts` and `Messaging`. In `AddRebus`, use `UseAzureStorageQueues` with a new queue name from `QueueNames` and load the shared map with `.Routing(RebusRoutes.Configure)`. Implement `IHandleMessages<PrepareWelcomePackV1>` and register the handler with `AddRebusHandler<PrepareWelcomePackHandler>()`. To add a command to an existing service, register its handler there and use the existing queue. [Worker setup example](src/Develop/Program.cs)
+3. **Route and send.** In `RebusRoutes`, map `PrepareWelcomePackV1` to `QueueNames.Welcome` and `WelcomePackPreparedV1` to `QueueNames.Orchestrator`. Send each message with `IBus.Send` and carry the same `CorrelationId` into the reply. To make the saga wait for the reply, implement `IHandleMessages<WelcomePackPreparedV1>` on the saga, map it in `CorrelateMessages`, and advance the stage in `Handle`. [Shared routes](src/Messaging/RebusRoutes.cs) and [saga example](src/Orchestrator/LearnerRegistrationSaga.cs)
 
 ## Run locally
 
@@ -71,6 +76,34 @@ Set `Logging__Console__FormatterName=json` when launching a service to see the s
 
 The final log includes the learner, plan and assessment IDs and the assessment's UTC time. Rebus removes the saga and its correlation index when it completes.
 
+## Send a standalone reminder
+
+This example needs only Azurite, Manage and Develop. Start Azurite and build from the repository root.
+
+```sh
+docker compose up -d --wait azurite
+dotnet build RebusDemo.slnx
+```
+
+Run one command per terminal, also from the repository root.
+
+```sh
+dotnet run --no-build --project src/Manage
+dotnet run --no-build --project src/Develop
+```
+
+Once Manage is listening on port `5082`, send the reminder.
+
+```sh
+curl -i http://127.0.0.1:5082/learners/remind \
+  -H 'Content-Type: application/json' \
+  --data '{"learnerId":"LRN-0142"}'
+```
+
+Manage returns `202 Accepted` with a `reminderId`. Look for `>>> [Develop] Handled SendLearnerReminderV1` and the same ID in Develop's terminal. The handler simulates sending the reminder in its log.
+
+When Manage sends `SendLearnerReminderV1`, Rebus looks up `QueueNames.Develop` in the shared map and delivers the message to `develop`. Develop's `IHandleMessages<SendLearnerReminderV1>` handler completes the work on receipt. This example runs with the orchestrator and SQL Server stopped. [Reminder contract](src/Contracts/SendLearnerReminderV1.cs) · [Shared routes](src/Messaging/RebusRoutes.cs) · [Develop handler](src/Develop/SendLearnerReminderHandler.cs)
+
 ## Demonstrate restart recovery
 
 1. Stop Develop with `Ctrl+C` and leave the other apps and both containers running.
@@ -97,8 +130,46 @@ Stop Develop and restart it with this option. Leave the other applications runni
 Demo__FailFirstLearningPlan=true dotnet run --no-build --project src/Develop
 ```
 
-Develop logs a simulated exception for the first `CreateLearningPlanV1` it handles. Rebus retries the same message. The successful Develop log shows the same message ID and correlation ID, and the orchestrator reaches `Completed`. The switch injects one failure per Develop process. Rebus forwards messages that exhaust five delivery attempts to `rebus-errors`.
+Develop logs a simulated exception for the first `CreateLearningPlanV1` it handles. Rebus retries the same message. The successful Develop log shows the same message ID and correlation ID, and the orchestrator reaches `Completed`. The switch injects one failure per Develop process.
 
-Rebus stores handled message IDs and outgoing commands with the active SQL saga. If a queue delivery repeats, Rebus can replay the outgoing command. Service handlers derive the demo resource IDs from the correlation ID and Take derives its slot from the original request date. The saga checks its current stage before advancing on a reply with a new message ID. Every HTTP submission starts a fresh workflow, and the demo service results are generated in the handlers without separate business databases.
+## Demonstrate a failed saga
+
+With all four services running, submit the failure sample from the repository root.
+
+```sh
+curl -i http://127.0.0.1:5080/learners/register \
+  -H 'Content-Type: application/json' \
+  --data-binary @samples/register-learner-failure.json
+```
+
+The sample sets `learningGoal` to `DEMO_FAIL_LEARNING_PLAN`. Develop throws on every delivery of that command. After five attempts, Rebus dispatches it to Develop's `IHandleMessages<IFailed<CreateLearningPlanV1>>` handler. The handler sends `LearningPlanCreationFailedV1` to the orchestrator and dead-letters the original command to `rebus-errors` with the exception details.
+
+The API returns `202 Accepted` when it queues the registration. Use its `correlationId` to find the eventual outcome. The orchestrator logs `AwaitingLearningPlan -> Failed on LearningPlanCreationFailedV1` and saves `Failed`, the previous stage, and the reason in SQL Server. `Failed` is terminal in this demo. Submit a fresh registration after correcting the cause.
+
+| Service | Failure reply after exhausted retries |
+| --- | --- |
+| Manage | `LearnerCreationFailedV1` |
+| Develop | `LearningPlanCreationFailedV1` |
+| Take | `AssessmentSchedulingFailedV1` |
+
+Inspect failed registrations in SQL Server. `Stage = 5` means `Failed` and `FailedAtStage = 2` means it failed while awaiting the learning plan.
+
+```sh
+docker compose exec -T sqlserver bash -c '
+  exec /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -d RebusDemo' <<'SQL'
+SELECT registration.*
+FROM dbo.Sagas AS saga
+CROSS APPLY OPENJSON(CONVERT(varchar(max), saga.data)) WITH (
+    CorrelationId uniqueidentifier,
+    Stage int,
+    FailedAtStage int,
+    FailureReason nvarchar(200)
+) AS registration
+WHERE registration.Stage = 5;
+GO
+SQL
+```
+
+Rebus stores handled message IDs and outgoing commands with the active SQL saga. If a queue delivery repeats, Rebus can replay the outgoing command. Service handlers derive the demo resource IDs from the correlation ID and Take derives its slot from the original request date. The saga checks its current stage before advancing on a reply with a new message ID. Every registration request starts a fresh workflow, and the demo service results are generated in the handlers without separate business databases.
 
 Stop the applications with `Ctrl+C` and run `docker compose down` to stop the containers and retain their data volumes.

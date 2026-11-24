@@ -3,7 +3,7 @@ using Rebus.Sagas.Idempotent;
 namespace RebusDemo.Orchestrator;
 
 /// <summary>
-/// The state of one active registration. Rebus loads it into the saga's Data property before handling a message.
+/// The persisted state of one registration. Rebus loads it into Data before handling a message.
 /// </summary>
 public sealed class LearnerRegistrationSagaData : IdempotentSagaData
 {
@@ -17,14 +17,19 @@ public sealed class LearnerRegistrationSagaData : IdempotentSagaData
     public DateTimeOffset RequestedAtUtc { get; set; }
     public string? LearnerId { get; set; }
     public string? LearningPlanId { get; set; }
+
+    // Failed registrations stay in SQL Server with the stage and reason that ended the workflow.
+    public RegistrationStage? FailedAtStage { get; set; }
+    public string? FailureReason { get; set; }
 }
 
-/// <summary>Tracks which reply the saga is waiting for. Active stage values are stored in SQL Server.</summary>
+/// <summary>Tracks the reply the saga is waiting for or the workflow's final outcome.</summary>
 public enum RegistrationStage
 {
     New = 0,
     AwaitingLearner = 1,
     AwaitingLearningPlan = 2,
     AwaitingAssessment = 3,
-    Completed = 4
+    Completed = 4,
+    Failed = 5
 }

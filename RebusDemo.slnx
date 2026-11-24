@@ -1,5 +1,6 @@
 <Solution>
   <Project Path="src/Contracts/Contracts.csproj" />
+  <Project Path="src/Messaging/Messaging.csproj" />
   <Project Path="src/Manage/Manage.csproj" />
   <Project Path="src/Develop/Develop.csproj" />
   <Project Path="src/Take/Take.csproj" />

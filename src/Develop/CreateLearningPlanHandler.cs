@@ -1,6 +1,8 @@
 using Rebus.Bus;
+using Rebus.Exceptions;
 using Rebus.Handlers;
 using Rebus.Pipeline;
+using Rebus.Retry.Simple;
 using RebusDemo.Contracts;
 
 namespace RebusDemo.Develop;
@@ -10,14 +12,24 @@ namespace RebusDemo.Develop;
 /// </summary>
 public sealed class CreateLearningPlanHandler(
     IBus bus, DemoFailure demoFailure, ILogger<CreateLearningPlanHandler> logger)
-    : IHandleMessages<CreateLearningPlanV1>
+    : IHandleMessages<CreateLearningPlanV1>, IHandleMessages<IFailed<CreateLearningPlanV1>>
 {
+    private const string PermanentFailureGoal = "DEMO_FAIL_LEARNING_PLAN";
+
     /// <summary>Handles one delivery of a plan request, including the optional retry demonstration.</summary>
     public async Task Handle(CreateLearningPlanV1 message)
     {
         // This Rebus message ID identifies the individual command across retries. The
         // correlation ID in the body is shared by every command and reply in the workflow.
         var messageId = MessageContext.Current.TransportMessage.GetMessageId();
+        // This sample value throws on every delivery so Rebus reaches second-level handling.
+        if (message.LearningGoal == PermanentFailureGoal)
+        {
+            logger.LogWarning("Simulating a permanent planning failure\n    Correlation {CorrelationId} | Message {MessageId}",
+                message.CorrelationId, messageId);
+            throw new InvalidOperationException("Simulated permanent learning plan failure for the demo goal.");
+        }
+
         if (demoFailure.ConsumeFailure())
         {
             logger.LogWarning("Simulating a temporary planning failure\n    Correlation {CorrelationId} | Message {MessageId}",
@@ -40,5 +52,15 @@ public sealed class CreateLearningPlanHandler(
             "    Plan {LearningPlanId} ({ModuleCount} modules)\n    Correlation {CorrelationId} | Message {MessageId}",
             nameof(CreateLearningPlanV1), nameof(LearningPlanCreatedV1), planId, modules.Length,
             message.CorrelationId, messageId);
+    }
+
+    /// <summary>Reports exhausted retries to the saga and dead-letters the original command.</summary>
+    public async Task Handle(IFailed<CreateLearningPlanV1> failure)
+    {
+        var correlationId = failure.Message.CorrelationId;
+        await bus.Send(new LearningPlanCreationFailedV1(correlationId, "Develop could not create the learning plan."));
+        await bus.Advanced.TransportMessage.Deadletter(failure.ErrorDescription);
+        logger.LogWarning("Exhausted retries for {Command} -> queued {Reply}\n    Correlation {CorrelationId}",
+            nameof(CreateLearningPlanV1), nameof(LearningPlanCreationFailedV1), correlationId);
     }
 }

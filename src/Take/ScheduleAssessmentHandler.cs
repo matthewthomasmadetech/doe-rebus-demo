@@ -1,5 +1,7 @@
 using Rebus.Bus;
+using Rebus.Exceptions;
 using Rebus.Handlers;
+using Rebus.Retry.Simple;
 using RebusDemo.Contracts;
 
 namespace RebusDemo.Take;
@@ -8,7 +10,7 @@ namespace RebusDemo.Take;
 /// Simulates scheduling an online assessment once Develop has created the learning plan.
 /// </summary>
 public sealed class ScheduleAssessmentHandler(IBus bus, ILogger<ScheduleAssessmentHandler> logger)
-    : IHandleMessages<ScheduleAssessmentV1>
+    : IHandleMessages<ScheduleAssessmentV1>, IHandleMessages<IFailed<ScheduleAssessmentV1>>
 {
     /// <summary>Chooses a stable demo slot and returns the booking details to the orchestrator.</summary>
     public async Task Handle(ScheduleAssessmentV1 message)
@@ -23,5 +25,15 @@ public sealed class ScheduleAssessmentHandler(IBus bus, ILogger<ScheduleAssessme
             "    Assessment {AssessmentId} scheduled for {ScheduledAtUtc:u}\n    Correlation {CorrelationId}",
             nameof(ScheduleAssessmentV1), nameof(AssessmentScheduledV1), assessmentId, scheduledAt,
             message.CorrelationId);
+    }
+
+    /// <summary>Reports exhausted retries to the saga and dead-letters the original command.</summary>
+    public async Task Handle(IFailed<ScheduleAssessmentV1> failure)
+    {
+        var correlationId = failure.Message.CorrelationId;
+        await bus.Send(new AssessmentSchedulingFailedV1(correlationId, "Take could not schedule the assessment."));
+        await bus.Advanced.TransportMessage.Deadletter(failure.ErrorDescription);
+        logger.LogWarning("Exhausted retries for {Command} -> queued {Reply}\n    Correlation {CorrelationId}",
+            nameof(ScheduleAssessmentV1), nameof(AssessmentSchedulingFailedV1), correlationId);
     }
 }

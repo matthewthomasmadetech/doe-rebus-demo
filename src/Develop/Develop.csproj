@@ -4,6 +4,7 @@
     <PackageReference Include="Rebus.AzureQueues" />
     <PackageReference Include="Rebus.ServiceProvider" />
     <ProjectReference Include="../Contracts/Contracts.csproj" />
+    <ProjectReference Include="../Messaging/Messaging.csproj" />
     <Compile Include="../Shared/DemoConsoleLogging.cs" Link="DemoConsoleLogging.cs" />
   </ItemGroup>
 </Project>

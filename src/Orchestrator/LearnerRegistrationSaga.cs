@@ -17,18 +17,24 @@ public sealed class LearnerRegistrationSaga(IBus bus, ILogger<LearnerRegistratio
     : IdempotentSaga<LearnerRegistrationSagaData>,
         IAmInitiatedBy<RegisterLearnerV1>,
         IHandleMessages<LearnerCreatedV1>,
+        IHandleMessages<LearnerCreationFailedV1>,
         IHandleMessages<LearningPlanCreatedV1>,
-        IHandleMessages<AssessmentScheduledV1>
+        IHandleMessages<LearningPlanCreationFailedV1>,
+        IHandleMessages<AssessmentScheduledV1>,
+        IHandleMessages<AssessmentSchedulingFailedV1>
 {
     /// <summary>Maps the correlation ID from each incoming message to the indexed saga property.</summary>
     protected override void CorrelateMessages(ICorrelationConfig<LearnerRegistrationSagaData> config)
     {
         // IAmInitiatedBy lets Rebus create saga data when a registration has no match.
-        // The three reply types can continue an existing saga through their IHandleMessages registrations.
+        // Success and failure replies match an existing saga through the same workflow ID.
         config.Correlate<RegisterLearnerV1>(message => message.CorrelationId, data => data.CorrelationId);
         config.Correlate<LearnerCreatedV1>(message => message.CorrelationId, data => data.CorrelationId);
+        config.Correlate<LearnerCreationFailedV1>(message => message.CorrelationId, data => data.CorrelationId);
         config.Correlate<LearningPlanCreatedV1>(message => message.CorrelationId, data => data.CorrelationId);
+        config.Correlate<LearningPlanCreationFailedV1>(message => message.CorrelationId, data => data.CorrelationId);
         config.Correlate<AssessmentScheduledV1>(message => message.CorrelationId, data => data.CorrelationId);
+        config.Correlate<AssessmentSchedulingFailedV1>(message => message.CorrelationId, data => data.CorrelationId);
     }
 
     /// <summary>Starts the registration by saving the values needed later and asking Manage to create the learner.</summary>
@@ -82,6 +88,35 @@ public sealed class LearnerRegistrationSaga(IBus bus, ILogger<LearnerRegistratio
             "    Assessment {AssessmentId} at {ScheduledAtUtc:u}\n    Correlation {CorrelationId}",
             Data.Stage, RegistrationStage.Completed, nameof(AssessmentScheduledV1), Data.LearnerId,
             Data.LearningPlanId, message.AssessmentId, message.ScheduledAtUtc, Data.CorrelationId);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Fails the registration when Manage exhausts its learner creation attempts.</summary>
+    public Task Handle(LearnerCreationFailedV1 message) =>
+        RecordFailure(RegistrationStage.AwaitingLearner, nameof(LearnerCreationFailedV1), message.Reason);
+
+    /// <summary>Fails the registration when Develop exhausts its planning attempts.</summary>
+    public Task Handle(LearningPlanCreationFailedV1 message) =>
+        RecordFailure(RegistrationStage.AwaitingLearningPlan, nameof(LearningPlanCreationFailedV1), message.Reason);
+
+    /// <summary>Fails the registration when Take exhausts its scheduling attempts.</summary>
+    public Task Handle(AssessmentSchedulingFailedV1 message) =>
+        RecordFailure(RegistrationStage.AwaitingAssessment, nameof(AssessmentSchedulingFailedV1), message.Reason);
+
+    /// <summary>Records a failure for the current stage and retains the saga for inspection.</summary>
+    private Task RecordFailure(RegistrationStage expectedStage, string messageType, string reason)
+    {
+        if (!IsAtStage(expectedStage, messageType))
+            return Task.CompletedTask;
+
+        Data.FailedAtStage = Data.Stage;
+        Data.FailureReason = reason;
+        Data.Stage = RegistrationStage.Failed;
+
+        logger.LogWarning("{PreviousStage} -> {Stage} on {MessageType}\n" +
+            "    Reason {FailureReason} | Correlation {CorrelationId}",
+            expectedStage, Data.Stage, messageType, reason, Data.CorrelationId);
+
         return Task.CompletedTask;
     }
 

@@ -1,9 +1,9 @@
 using Rebus.Config;
 using Rebus.Retry.Simple;
-using Rebus.Routing.TypeBased;
 using Rebus.Sagas.Idempotent;
 using RebusDemo.Contracts;
 using RebusDemo.Logging;
+using RebusDemo.Messaging;
 using RebusDemo.Orchestrator;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -18,12 +18,7 @@ builder.Services.AddRebusHandler<LearnerRegistrationSaga>();
 builder.Services.AddRebus(configure => configure
     // The orchestrator reads both registration commands and service replies from this queue.
     .Transport(transport => transport.UseAzureStorageQueues(storage, QueueNames.Orchestrator))
-    // These routes apply to sends from this bus, including the HTTP endpoint's send to its own queue.
-    .Routing(routing => routing.TypeBased()
-        .Map<RegisterLearnerV1>(QueueNames.Orchestrator)
-        .Map<CreateLearnerV1>(QueueNames.Manage)
-        .Map<CreateLearningPlanV1>(QueueNames.Develop)
-        .Map<ScheduleAssessmentV1>(QueueNames.Take))
+    .Routing(RebusRoutes.Configure)
     // Rebus creates both tables at startup. Sagas holds serialized workflow state and SagaIndex
     // maps a correlation value to that state so replies can resume a workflow after a restart.
     .Sagas(sagas => sagas.StoreInSqlServer(sql, "Sagas", "SagaIndex"))
