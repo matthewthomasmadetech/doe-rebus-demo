@@ -6,5 +6,6 @@
     <!-- Override the vulnerable version brought in by Microsoft.Data.SqlClient. -->
     <PackageReference Include="System.Security.Cryptography.Pkcs" />
     <ProjectReference Include="../Contracts/Contracts.csproj" />
+    <Compile Include="../Shared/DemoConsoleLogging.cs" Link="DemoConsoleLogging.cs" />
   </ItemGroup>
 </Project>

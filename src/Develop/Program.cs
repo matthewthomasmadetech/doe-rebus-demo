@@ -3,12 +3,12 @@ using Rebus.Retry.Simple;
 using Rebus.Routing.TypeBased;
 using RebusDemo.Contracts;
 using RebusDemo.Develop;
+using RebusDemo.Logging;
 
 var builder = Host.CreateApplicationBuilder(args);
 var storage = builder.Configuration.GetConnectionString("AzureQueues") ?? "UseDevelopmentStorage=true";
 
-builder.Logging.ClearProviders();
-builder.Logging.AddJsonConsole();
+builder.Logging.AddDemoConsole();
 
 // Share the demo failure switch across handler instances so a retry can succeed.
 builder.Services.AddSingleton(new DemoFailure(builder.Configuration.GetValue<bool>("Demo:FailFirstLearningPlan")));

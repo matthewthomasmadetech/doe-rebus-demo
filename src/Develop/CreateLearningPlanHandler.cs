@@ -20,7 +20,7 @@ public sealed class CreateLearningPlanHandler(
         var messageId = MessageContext.Current.TransportMessage.GetMessageId();
         if (demoFailure.ConsumeFailure())
         {
-            logger.LogWarning("Simulating a temporary planning failure for {CorrelationId}, message {MessageId}",
+            logger.LogWarning("Simulating a temporary planning failure\n    Correlation {CorrelationId} | Message {MessageId}",
                 message.CorrelationId, messageId);
 
             // Let the exception reach Rebus so its retry policy can redeliver the command.
@@ -36,9 +36,9 @@ public sealed class CreateLearningPlanHandler(
         ];
 
         await bus.Send(new LearningPlanCreatedV1(message.CorrelationId, message.LearnerId, planId, modules));
-        logger.LogInformation("Handled {Command} and sent {Reply} for {CorrelationId}, message {MessageId}. " +
-            "Plan {LearningPlanId} contains {ModuleCount} modules",
-            nameof(CreateLearningPlanV1), nameof(LearningPlanCreatedV1), message.CorrelationId, messageId,
-            planId, modules.Length);
+        logger.LogInformation("Handled {Command} -> sent {Reply}\n" +
+            "    Plan {LearningPlanId} ({ModuleCount} modules)\n    Correlation {CorrelationId} | Message {MessageId}",
+            nameof(CreateLearningPlanV1), nameof(LearningPlanCreatedV1), planId, modules.Length,
+            message.CorrelationId, messageId);
     }
 }

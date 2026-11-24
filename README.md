@@ -16,6 +16,14 @@ The workflow starts at [`POST /learners/register`](src/Orchestrator/RegisterLear
 | Take | [Program.cs](src/Take/Program.cs) | `take` | Handles [`ScheduleAssessmentV1`](src/Take/ScheduleAssessmentHandler.cs) and returns an online assessment slot. |
 | Contracts | Shared library | — | Defines the versioned [commands and replies](src/Contracts/LearnerRegistrationV1.cs) and [queue names](src/Contracts/QueueNames.cs). |
 
+## Extend the demo with Rebus
+
+A **contract** is the C# type shared by the sender and receiver. A **command** asks a service to do work, and a **reply** reports the result. A Welcome service that prepares a learner's welcome pack would use two message types and its own queue.
+
+1. **Define the messages.** Add records such as `PrepareWelcomePackV1` and `WelcomePackPreparedV1` to the shared Contracts project. Give both a `CorrelationId` if they belong to the saga. Use a new type such as `PrepareWelcomePackV2` for a breaking change and keep the `V1` handler available while old messages are queued. [Existing contracts](src/Contracts/LearnerRegistrationV1.cs)
+2. **Add the receiver.** Add a .NET worker to `RebusDemo.slnx` and reference `Contracts`. In `AddRebus`, use `UseAzureStorageQueues` with a new queue name from `QueueNames`. Implement `IHandleMessages<PrepareWelcomePackV1>` and register the handler with `AddRebusHandler<PrepareWelcomePackHandler>()`. To add a command to an existing service, register its handler there and use the existing queue. [Worker setup example](src/Develop/Program.cs)
+3. **Route and send.** In the sending app, add a type-based route such as `.Map<PrepareWelcomePackV1>(QueueNames.Welcome)` and send the command with `IBus.Send`. In the receiving service, map the reply type back to the orchestrator and send it with the same `CorrelationId`. To make the saga wait for the reply, implement `IHandleMessages<WelcomePackPreparedV1>` on the saga, map it in `CorrelateMessages`, and advance the stage in `Handle`. [Sender setup](src/Orchestrator/Program.cs) and [saga example](src/Orchestrator/LearnerRegistrationSaga.cs)
+
 ## Run locally
 
 Install the .NET 10 SDK and Docker with Compose v2. From the repository root, start the infrastructure and wait for the database to be created.
@@ -47,7 +55,9 @@ curl -i http://127.0.0.1:5080/learners/register \
   --data-binary @samples/register-learner.json
 ```
 
-The API returns `202 Accepted` with a `correlationId` once `RegisterLearnerV1` is queued. Search the JSON logs from the four terminals for that ID to follow the full workflow.
+The API returns `202 Accepted` with a `correlationId` once `RegisterLearnerV1` is queued. Follow that ID in the `>>> [Service]` blocks in each terminal. Each block shows the command and reply or the saga transition, with details underneath. Routine Rebus and ASP.NET Core messages are hidden at the default log level. Warnings and errors remain visible.
+
+Set `Logging__Console__FormatterName=json` when launching a service to see the structured JSON logs.
 
 | From → To | Message | Saga stage after handling |
 | --- | --- | --- |

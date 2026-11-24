@@ -19,9 +19,9 @@ public sealed class ScheduleAssessmentHandler(IBus bus, ILogger<ScheduleAssessme
 
         await bus.Send(new AssessmentScheduledV1(message.CorrelationId, message.LearnerId, message.LearningPlanId,
             assessmentId, "Online diagnostic assessment", scheduledAt));
-        logger.LogInformation("Handled {Command} and sent {Reply} for {CorrelationId}. " +
-            "Assessment {AssessmentId} scheduled for {ScheduledAtUtc}",
-            nameof(ScheduleAssessmentV1), nameof(AssessmentScheduledV1), message.CorrelationId,
-            assessmentId, scheduledAt);
+        logger.LogInformation("Handled {Command} -> sent {Reply}\n" +
+            "    Assessment {AssessmentId} scheduled for {ScheduledAtUtc:u}\n    Correlation {CorrelationId}",
+            nameof(ScheduleAssessmentV1), nameof(AssessmentScheduledV1), assessmentId, scheduledAt,
+            message.CorrelationId);
     }
 }

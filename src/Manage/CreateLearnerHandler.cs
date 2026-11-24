@@ -18,7 +18,7 @@ public sealed class CreateLearnerHandler(IBus bus, ILogger<CreateLearnerHandler>
 
         // The outgoing message type selects the queue via the route in Manage's Program.cs.
         await bus.Send(new LearnerCreatedV1(message.CorrelationId, learnerId));
-        logger.LogInformation("Handled {Command} and sent {Reply} for {CorrelationId}. Learner {LearnerId}",
-            nameof(CreateLearnerV1), nameof(LearnerCreatedV1), message.CorrelationId, learnerId);
+        logger.LogInformation("Handled {Command} -> sent {Reply}\n    Learner {LearnerId} | Correlation {CorrelationId}",
+            nameof(CreateLearnerV1), nameof(LearnerCreatedV1), learnerId, message.CorrelationId);
     }
 }

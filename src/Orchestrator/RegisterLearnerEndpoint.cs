@@ -39,7 +39,7 @@ internal static class RegisterLearnerEndpoint
         // The saga correlates on the message body. Rebus propagates the matching header when
         // handlers send subsequent messages, so transport-level diagnostics can use the same ID.
         await bus.Send(command, new Dictionary<string, string> { [Headers.CorrelationId] = correlationId.ToString() });
-        logger.LogInformation("Queued {Command} for {CorrelationId}", nameof(RegisterLearnerV1), correlationId);
+        logger.LogInformation("Queued {Command}\n    Correlation {CorrelationId}", nameof(RegisterLearnerV1), correlationId);
 
         return Results.Accepted(value: new { correlationId });
     }

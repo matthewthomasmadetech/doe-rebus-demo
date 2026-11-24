@@ -3,6 +3,7 @@ using Rebus.Retry.Simple;
 using Rebus.Routing.TypeBased;
 using Rebus.Sagas.Idempotent;
 using RebusDemo.Contracts;
+using RebusDemo.Logging;
 using RebusDemo.Orchestrator;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -10,8 +11,7 @@ var storage = builder.Configuration.GetConnectionString("AzureQueues") ?? "UseDe
 var sql = builder.Configuration.GetConnectionString("RebusSqlServer")
     ?? throw new InvalidOperationException("Configure the RebusSqlServer connection string.");
 
-builder.Logging.ClearProviders();
-builder.Logging.AddJsonConsole();
+builder.Logging.AddDemoConsole();
 
 // Rebus discovers all the saga's message handlers from this one DI registration.
 builder.Services.AddRebusHandler<LearnerRegistrationSaga>();

@@ -77,10 +77,11 @@ public sealed class LearnerRegistrationSaga(IBus bus, ILogger<LearnerRegistratio
 
         // Rebus removes the completed saga row and its index entry after successful handling.
         MarkAsComplete();
-        logger.LogInformation("Saga {CorrelationId}: {PreviousStage} -> {Stage} on {MessageType}. " +
-            "Learner {LearnerId}, plan {LearningPlanId}, assessment {AssessmentId} at {ScheduledAtUtc}",
-            Data.CorrelationId, Data.Stage, RegistrationStage.Completed, nameof(AssessmentScheduledV1),
-            Data.LearnerId, Data.LearningPlanId, message.AssessmentId, message.ScheduledAtUtc);
+        logger.LogInformation("{PreviousStage} -> {Stage} on {MessageType}\n" +
+            "    Learner {LearnerId} | Plan {LearningPlanId}\n" +
+            "    Assessment {AssessmentId} at {ScheduledAtUtc:u}\n    Correlation {CorrelationId}",
+            Data.Stage, RegistrationStage.Completed, nameof(AssessmentScheduledV1), Data.LearnerId,
+            Data.LearningPlanId, message.AssessmentId, message.ScheduledAtUtc, Data.CorrelationId);
         return Task.CompletedTask;
     }
 
@@ -92,8 +93,8 @@ public sealed class LearnerRegistrationSaga(IBus bus, ILogger<LearnerRegistratio
 
         // A redelivered command can produce a reply with a new message ID. The stage check
         // also covers that case because Rebus's replay history is keyed by individual message ID.
-        logger.LogInformation("Saga {CorrelationId} ignored {MessageType} in {Stage}; expected {ExpectedStage}",
-            Data.CorrelationId, messageType, Data.Stage, expectedStage);
+        logger.LogInformation("Ignored {MessageType} in {Stage} (expected {ExpectedStage})\n    Correlation {CorrelationId}",
+            messageType, Data.Stage, expectedStage, Data.CorrelationId);
         return false;
     }
 
@@ -102,7 +103,8 @@ public sealed class LearnerRegistrationSaga(IBus bus, ILogger<LearnerRegistratio
     {
         var previousStage = Data.Stage;
         Data.Stage = nextStage;
-        logger.LogInformation("Saga {CorrelationId}: {PreviousStage} -> {Stage} on {MessageType}. Queued {NextCommand}",
-            Data.CorrelationId, previousStage, nextStage, messageType, nextCommand);
+        logger.LogInformation("{PreviousStage} -> {Stage} on {MessageType}\n" +
+            "    Queued {NextCommand} | Correlation {CorrelationId}",
+            previousStage, nextStage, messageType, nextCommand, Data.CorrelationId);
     }
 }

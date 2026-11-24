@@ -2,13 +2,13 @@ using Rebus.Config;
 using Rebus.Retry.Simple;
 using Rebus.Routing.TypeBased;
 using RebusDemo.Contracts;
+using RebusDemo.Logging;
 using RebusDemo.Take;
 
 var builder = Host.CreateApplicationBuilder(args);
 var storage = builder.Configuration.GetConnectionString("AzureQueues") ?? "UseDevelopmentStorage=true";
 
-builder.Logging.ClearProviders();
-builder.Logging.AddJsonConsole();
+builder.Logging.AddDemoConsole();
 
 // Register the handler for incoming assessment commands and map outgoing assessment
 // results to the orchestrator. The transport creates Take's input queue at startup.
