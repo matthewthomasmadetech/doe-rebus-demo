@@ -6,7 +6,7 @@ using RebusDemo.Contracts;
 
 namespace RebusDemo.Develop;
 
-/// <summary>Processes standalone reminder commands on Develop's existing input queue.</summary>
+/// <summary>Processes standalone reminder commands on their dedicated capability queue.</summary>
 public sealed class SendLearnerReminderHandler(IBus bus, ILogger<SendLearnerReminderHandler> logger)
     : IHandleMessages<SendLearnerReminderV1>, IHandleMessages<IFailed<SendLearnerReminderV1>>
 {

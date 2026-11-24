@@ -13,7 +13,8 @@ public sealed record RegisterLearnerV1(
     [property: Required, StringLength(160)] string LearningGoal,
     [property: RequiredValue] DateTimeOffset RequestedAtUtc,
     [property: AllowedValues(null, LearningPlanFormats.Online, LearningPlanFormats.Workbook,
-        ErrorMessage = LearningPlanFormats.ValidationMessage)] string? PreferredFormat = null) : IValidatedMessage;
+        ErrorMessage = LearningPlanFormats.ValidationMessage)] string? PreferredFormat = null,
+    [property: StringLength(80)] string? PreferredName = null) : IValidatedMessage;
 
 /// <summary>Asks Manage to create the learner registration.</summary>
 public sealed record CreateLearnerV1(

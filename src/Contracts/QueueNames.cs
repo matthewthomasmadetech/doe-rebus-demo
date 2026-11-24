@@ -5,11 +5,15 @@ namespace RebusDemo.Contracts;
 /// </summary>
 public static class QueueNames
 {
-    public const string Manage = "manage";
-    public const string Develop = "develop";
-    public const string Take = "take";
     public const string Orchestrator = "orchestrator";
 
-    // All four endpoints forward messages here when their delivery attempts are exhausted.
+    // Each worker command version has its own queue so a receiver can choose which versions it consumes.
+    public const string CreateLearnerV1 = "create-learner-v1";
+    public const string CreateLearnerV2 = "create-learner-v2";
+    public const string CreateLearningPlanV1 = "create-learning-plan-v1";
+    public const string SendLearnerReminderV1 = "send-learner-reminder-v1";
+    public const string ScheduleAssessmentV1 = "schedule-assessment-v1";
+
+    // All application endpoints forward messages here when their delivery attempts are exhausted.
     public const string Errors = "rebus-errors";
 }

@@ -12,7 +12,8 @@ public sealed record RegisterLearnerRequest(
     [property: Required, EmailAddress, StringLength(254)] string Email,
     [property: Required, StringLength(160)] string LearningGoal,
     [property: AllowedValues(null, LearningPlanFormats.Online, LearningPlanFormats.Workbook,
-        ErrorMessage = LearningPlanFormats.ValidationMessage)] string? PreferredFormat = null);
+        ErrorMessage = LearningPlanFormats.ValidationMessage)] string? PreferredFormat = null,
+    [property: StringLength(80)] string? PreferredName = null);
 
 /// <summary>Connects the HTTP API to the orchestrator's Rebus queue.</summary>
 internal static class RegisterLearnerEndpoint
@@ -36,7 +37,8 @@ internal static class RegisterLearnerEndpoint
         // The response gives the caller a workflow ID to follow in the service logs.
         var correlationId = Guid.NewGuid();
         var command = new RegisterLearnerV1(correlationId, request.FirstName.Trim(), request.LastName.Trim(),
-            request.Email.Trim(), request.LearningGoal.Trim(), DateTimeOffset.UtcNow, request.PreferredFormat);
+            request.Email.Trim(), request.LearningGoal.Trim(), DateTimeOffset.UtcNow, request.PreferredFormat,
+            request.PreferredName?.Trim());
 
         // The saga correlates on the message body. Rebus propagates the matching header when
         // handlers send subsequent messages, so transport-level diagnostics can use the same ID.

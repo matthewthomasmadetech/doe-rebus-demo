@@ -1,29 +1,29 @@
 using Rebus.Config;
-using Rebus.Retry.Simple;
 using RebusDemo.Contracts;
 using RebusDemo.Develop;
 using RebusDemo.Logging;
 using RebusDemo.Messaging;
 
-var builder = Host.CreateApplicationBuilder(args);
-var storage = builder.Configuration.GetConnectionString("AzureQueues") ?? "UseDevelopmentStorage=true";
-
-builder.Logging.AddDemoConsole();
-
-// Share the demo failure switch across handler instances so a retry can succeed.
-builder.Services.AddSingleton(new DemoFailure(builder.Configuration.GetValue<bool>("Demo:FailFirstLearningPlan")));
-builder.Services.AddRebusHandler<CreateLearningPlanHandler>();
-builder.Services.AddRebusHandler<SendLearnerReminderHandler>();
-
-// Both Develop handlers consume messages from the same input queue.
-builder.Services.AddRebus(configure => configure
-    .Transport(transport => transport.UseAzureStorageQueues(storage, QueueNames.Develop))
-    .Routing(RebusRoutes.Configure)
-    .Options(options =>
+var builder = Host.CreateDefaultBuilder(args)
+    .ConfigureLogging(logging => logging.AddDemoConsole())
+    .ConfigureServices((context, services) =>
     {
-        options.RetryStrategy(QueueNames.Errors, maxDeliveryAttempts: 5,
-            secondLevelRetriesEnabled: true, errorDetailsHeaderMaxLength: 4096);
-        options.ValidateMessageContracts();
-    }));
+        var storage = context.Configuration.GetConnectionString("AzureQueues") ?? "UseDevelopmentStorage=true";
+
+        // Share the demo failure switch across learning-plan handler instances so a retry can succeed.
+        services.AddSingleton(new DemoFailure(context.Configuration.GetValue<bool>("Demo:FailFirstLearningPlan")));
+        services.AddRebusHandler<CreateLearningPlanHandler>();
+        services.AddRebus(configure => configure.UseCapabilityQueue(storage, QueueNames.CreateLearningPlanV1));
+    })
+    .AddRebusService((context, services) =>
+    {
+        var storage = context.Configuration.GetConnectionString("AzureQueues") ?? "UseDevelopmentStorage=true";
+
+        // This listener has its own container, so it only resolves the reminder handler.
+        // AddLogging registers ILogger<T> using the logger factory forwarded by Rebus.
+        services.AddLogging();
+        services.AddRebusHandler<SendLearnerReminderHandler>();
+        services.AddRebus(configure => configure.UseCapabilityQueue(storage, QueueNames.SendLearnerReminderV1));
+    });
 
 await builder.Build().RunAsync();

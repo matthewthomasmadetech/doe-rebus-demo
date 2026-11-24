@@ -6,32 +6,32 @@ Four .NET 10 applications run independently on the host. [Docker Compose](docker
 
 The workflow starts at [`POST /learners/register`](src/Orchestrator/RegisterLearnerEndpoint.cs). The endpoint queues a registration command and returns `202 Accepted` with a correlation ID. The Rebus saga sends commands to Manage, Develop and Take in sequence, advancing after each service sends a reply to the orchestrator queue. Every registration command and reply carries the same correlation ID so Rebus can load the correct saga from SQL Server, even after an orchestrator restart.
 
-Manage also sends a standalone reminder command directly to Develop's queue. Develop handles it using a regular Rebus message handler. [Send a standalone reminder](#send-a-standalone-reminder)
+Manage also sends a standalone reminder command directly to `send-learner-reminder-v1`. Develop handles it using a regular Rebus message handler. [Send a standalone reminder](#send-a-standalone-reminder)
 
 The orchestrator runs a second Rebus listener to archive messages from `rebus-errors` in SQL Server. [Inspect archived errors](#inspect-archived-errors)
 
 The orchestrator also serves a read-only dashboard for registration status and archived messages. It reads the same SQL database as the saga and archive listener. [Open the dashboard](#open-the-dashboard)
 
-All four services load the same message-to-queue map at startup. Each service uses the map when sending and selects its own input queue and handlers. [Shared Rebus routes](src/Messaging/RebusRoutes.cs)
+All four services use the same outgoing message-to-queue map. `RegisterLearnerV1` and all saga status updates go to the shared `orchestrator` input queue. Every worker command version has its own queue. Manage and Develop each host two Rebus listeners, with only the corresponding command and failure handlers registered on each listener. [Shared Rebus routes](src/Messaging/RebusRoutes.cs) · [Rebus hosting multiple buses](https://github.com/rebus-org/Rebus.ServiceProvider#starting-one-or-more-rebus-instances-using-one-or-more-separate-container-instances)
 
 ## Projects and entry points
 
-| Project | Startup | Input queue | Responsibility |
+| Project | Startup | Input queues | Responsibility |
 | --- | --- | --- | --- |
 | Orchestrator | [Program.cs](src/Orchestrator/Program.cs) | `orchestrator`, `rebus-errors` | Hosts the HTTP API, [registration saga](src/Orchestrator/LearnerRegistrationSaga.cs), dead-letter archive, and [dashboard](src/Orchestrator/Pages/Dashboard.cshtml). |
-| Manage | [Program.cs](src/Manage/Program.cs) | `manage` | Creates demo learner IDs for the saga and exposes [`POST /learners/remind`](src/Manage/SendLearnerReminderEndpoint.cs). |
-| Develop | [Program.cs](src/Develop/Program.cs) | `develop` | Builds [learning plans](src/Develop/CreateLearningPlanHandler.cs) and handles [standalone reminders](src/Develop/SendLearnerReminderHandler.cs). |
-| Take | [Program.cs](src/Take/Program.cs) | `take` | Handles [`ScheduleAssessmentV1`](src/Take/ScheduleAssessmentHandler.cs) and returns an online assessment slot. |
+| Manage | [Program.cs](src/Manage/Program.cs) | `create-learner-v1`, `create-learner-v2` | Creates demo learner IDs for the saga and exposes [`POST /learners/remind`](src/Manage/SendLearnerReminderEndpoint.cs). |
+| Develop | [Program.cs](src/Develop/Program.cs) | `create-learning-plan-v1`, `send-learner-reminder-v1` | Builds [learning plans](src/Develop/CreateLearningPlanHandler.cs) and handles [standalone reminders](src/Develop/SendLearnerReminderHandler.cs). |
+| Take | [Program.cs](src/Take/Program.cs) | `schedule-assessment-v1` | Handles [`ScheduleAssessmentV1`](src/Take/ScheduleAssessmentHandler.cs) and returns an online assessment slot. |
 | Contracts | Shared library | — | Defines [versioned commands](src/Contracts/LearnerRegistrationV1.cs), [status updates](src/Contracts/LearnerRegistrationStatusUpdates.cs), and [queue names](src/Contracts/QueueNames.cs). |
-| Messaging | Shared library | — | Registers [outgoing Rebus routes](src/Messaging/RebusRoutes.cs) for all four services. |
+| Messaging | Shared library | — | Configures [worker queues](src/Messaging/CapabilityQueueConfiguration.cs) and provides [outgoing Rebus routes](src/Messaging/RebusRoutes.cs) for all four services. |
 
 ## Extend the demo with Rebus
 
 A **contract** is the C# type shared by the sender and receiver. A **command** asks a service to do work. A **status update** reports the outcome. Commands use a version suffix and status updates use names such as `LearnerCreated` or `LearnerCreationFailed`. During a rolling deployment, update the orchestrator first so it can read both current and previously queued status names. [Compatibility configuration](src/Orchestrator/StatusUpdateCompatibility.cs)
 
-1. **Define the messages.** Add records such as the command `PrepareWelcomePackV1` and the status update `WelcomePackPrepared` to the shared Contracts project. Give both a `CorrelationId` if they belong to the saga. Use a new command type such as `PrepareWelcomePackV2` for a breaking request change and keep the `V1` handler available while old commands are queued. [Existing commands](src/Contracts/LearnerRegistrationV1.cs)
-2. **Add the receiver.** Add a .NET worker to `RebusDemo.slnx` and reference `Contracts` and `Messaging`. In `AddRebus`, use `UseAzureStorageQueues` with a new queue name from `QueueNames` and load the shared map with `.Routing(RebusRoutes.Configure)`. Implement `IHandleMessages<PrepareWelcomePackV1>` and register the handler with `AddRebusHandler<PrepareWelcomePackHandler>()`. To add a command to an existing service, register its handler there and use the existing queue. [Worker setup example](src/Develop/Program.cs)
-3. **Route and send.** In `RebusRoutes`, map `PrepareWelcomePackV1` to `QueueNames.Welcome` and `WelcomePackPrepared` to `QueueNames.Orchestrator`. Send each message with `IBus.Send` and carry the same `CorrelationId` into the status update. To make the saga wait for it, implement `IHandleMessages<WelcomePackPrepared>` on the saga, map it in `CorrelateMessages`, and advance the stage in `Handle`. [Shared routes](src/Messaging/RebusRoutes.cs) and [saga example](src/Orchestrator/LearnerRegistrationSaga.cs)
+1. **Define the messages and queue.** Add `PrepareWelcomePackV1`, `WelcomePackPrepared`, and a `QueueNames.PrepareWelcomePackV1` constant with the value `prepare-welcome-pack-v1` to the shared Contracts project. Give both messages a `CorrelationId` if they belong to the saga. A breaking request change gets its own command type, queue and handler, such as `PrepareWelcomePackV2` on `prepare-welcome-pack-v2`. Keep the V1 listener running while it still has senders or queued commands. [Queue names](src/Contracts/QueueNames.cs)
+2. **Add the receiver.** For a new service, add a .NET worker to `RebusDemo.slnx` and reference `Contracts`, `Messaging` and `Rebus.ServiceProvider`. Implement `IHandleMessages<PrepareWelcomePackV1>` and call `AddRebusHandler<PrepareWelcomePackHandler>()` and `AddRebus(configure => configure.UseCapabilityQueue(storage, QueueNames.PrepareWelcomePackV1))`. For an existing service, put those registrations and the handler's dependencies inside `AddRebusService`. Call `AddLogging()` inside that listener if the handler uses `ILogger<T>`. [Worker setup example](src/Develop/Program.cs)
+3. **Route and send.** In `RebusRoutes`, map `PrepareWelcomePackV1` to its new queue and `WelcomePackPrepared` to `QueueNames.Orchestrator`. Send each message with `IBus.Send` and carry the same `CorrelationId` into the status update. To make the saga wait for it, implement `IHandleMessages<WelcomePackPrepared>` on the saga, map it in `CorrelateMessages`, and advance the stage in `Handle`. [Shared routes](src/Messaging/RebusRoutes.cs) · [Saga example](src/Orchestrator/LearnerRegistrationSaga.cs)
 
 ## Run locally
 
@@ -80,7 +80,7 @@ Set `Logging__Console__FormatterName=json` when launching a service to see the s
 | From → To | Message | Saga stage after handling |
 | --- | --- | --- |
 | HTTP endpoint → Orchestrator | `RegisterLearnerV1` | `AwaitingLearner` |
-| Orchestrator → Manage | `CreateLearnerV1` | |
+| Orchestrator → Manage | `CreateLearnerV1` or `CreateLearnerV2` | |
 | Manage → Orchestrator | `LearnerCreated` | `AwaitingLearningPlan` |
 | Orchestrator → Develop | `CreateLearningPlanV1` | |
 | Develop → Orchestrator | `LearningPlanCreated` | `AwaitingAssessment` |
@@ -88,6 +88,30 @@ Set `Logging__Console__FormatterName=json` when launching a service to see the s
 | Take → Orchestrator | `AssessmentScheduled` | `Completed` |
 
 The final log includes the learner, plan and assessment IDs and the assessment's UTC time. The dashboard shows the saved completed outcome after Rebus removes the live saga and its correlation index.
+
+### Try both learner creation versions
+
+The sample above uses `create-learner-v1`. Submit the sample below to supply a nonblank `preferredName` and have the saga send `CreateLearnerV2` to `create-learner-v2`. Both handlers send the same `LearnerCreated` status update to `orchestrator`.
+
+```sh
+curl -i http://127.0.0.1:5080/learners/register \
+  -H 'Content-Type: application/json' \
+  --data-binary @samples/register-learner-v2.json
+```
+
+To see the isolation, start Manage normally once to create both queues, then stop it and restart with only the V1 listener.
+
+```sh
+Demo__EnableCreateLearnerV2=false dotnet run --no-build --project src/Manage
+```
+
+Submit both samples again. The V1 registration completes, and the V2 registration stays at `AwaitingLearner`. Restart Manage without the environment variable, and it processes the queued V2 command. You can also leave the V1-only instance running and start a second Manage instance with both listeners on a different HTTP port.
+
+```sh
+dotnet run --no-build --project src/Manage -- --urls http://127.0.0.1:5083
+```
+
+With both instances running, either can handle V1. The instance with both listeners handles V2.
 
 ## Try message validation
 
@@ -129,7 +153,7 @@ curl -i http://127.0.0.1:5082/learners/remind \
 
 Manage returns `202 Accepted` with a `reminderId`. Look for `>>> [Develop] Handled SendLearnerReminderV1` and the same ID in Develop's terminal. The handler simulates sending the reminder in its log.
 
-When Manage sends `SendLearnerReminderV1`, Rebus looks up `QueueNames.Develop` in the shared map and delivers the message to `develop`. Develop's `IHandleMessages<SendLearnerReminderV1>` handler completes the work on receipt. This example runs with the orchestrator and SQL Server stopped. [Reminder contract](src/Contracts/SendLearnerReminderV1.cs) · [Shared routes](src/Messaging/RebusRoutes.cs) · [Develop handler](src/Develop/SendLearnerReminderHandler.cs)
+When Manage sends `SendLearnerReminderV1`, Rebus looks up the message type in the shared map and delivers it to `send-learner-reminder-v1`. Develop's `IHandleMessages<SendLearnerReminderV1>` handler completes the work on receipt. This example runs with the orchestrator and SQL Server stopped. [Reminder contract](src/Contracts/SendLearnerReminderV1.cs) · [Shared routes](src/Messaging/RebusRoutes.cs) · [Develop handler](src/Develop/SendLearnerReminderHandler.cs)
 
 ## Demonstrate restart recovery
 

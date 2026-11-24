@@ -1,5 +1,4 @@
 using Rebus.Config;
-using Rebus.Retry.Simple;
 using RebusDemo.Contracts;
 using RebusDemo.Logging;
 using RebusDemo.Manage;
@@ -10,20 +9,24 @@ var storage = builder.Configuration.GetConnectionString("AzureQueues") ?? "UseDe
 
 builder.Logging.AddDemoConsole();
 
-// Register the handler with dependency injection. Rebus dispatches messages to it using
-// the message type declared in IHandleMessages<T>.
+// The V1 bus also supplies IBus to Manage's reminder HTTP endpoint.
+builder.Services.AddTransient<LearnerCreation>();
 builder.Services.AddRebusHandler<CreateLearnerHandler>();
+builder.Services.AddRebus(configure => configure.UseCapabilityQueue(storage, QueueNames.CreateLearnerV1));
 
-// Manage reads its own input queue and uses the shared map for outgoing commands and replies.
-builder.Services.AddRebus(configure => configure
-    .Transport(transport => transport.UseAzureStorageQueues(storage, QueueNames.Manage))
-    .Routing(RebusRoutes.Configure)
-    .Options(options =>
+// Rebus hosts V2 with its own queue and handler registrations inside the same Manage process.
+// A deployment with only V1 support can leave this listener off.
+if (builder.Configuration.GetValue("Demo:EnableCreateLearnerV2", true))
+{
+    builder.Host.AddRebusService(services =>
     {
-        options.RetryStrategy(QueueNames.Errors, maxDeliveryAttempts: 5,
-            secondLevelRetriesEnabled: true, errorDetailsHeaderMaxLength: 4096);
-        options.ValidateMessageContracts();
-    }));
+        // Register ILogger<T> in the child container. Rebus forwards the host's logger factory.
+        services.AddLogging();
+        services.AddTransient<LearnerCreation>();
+        services.AddRebusHandler<CreateLearnerV2Handler>();
+        services.AddRebus(configure => configure.UseCapabilityQueue(storage, QueueNames.CreateLearnerV2));
+    });
+}
 
 var app = builder.Build();
 app.MapPost("/learners/remind", SendLearnerReminderEndpoint.SendAsync);

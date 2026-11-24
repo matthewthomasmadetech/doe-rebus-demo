@@ -49,9 +49,19 @@ public sealed class LearnerRegistrationSaga(IBus bus, DashboardStore dashboard, 
         Data.PreferredFormat = message.PreferredFormat;
         Data.RequestedAtUtc = message.RequestedAtUtc;
 
-        // Send stages the command in the current Rebus delivery. The learner ID arrives in a separate reply.
-        await bus.Send(new CreateLearnerV1(Data.CorrelationId, message.FirstName, message.LastName, message.Email));
-        MoveTo(RegistrationStage.AwaitingLearner, nameof(RegisterLearnerV1), nameof(CreateLearnerV1));
+        // A preferred name requires V2. Both versions send the same LearnerCreated status update.
+        // Rebus routes the command to the queue for its concrete type.
+        if (string.IsNullOrWhiteSpace(message.PreferredName))
+        {
+            await bus.Send(new CreateLearnerV1(Data.CorrelationId, message.FirstName, message.LastName, message.Email));
+            MoveTo(RegistrationStage.AwaitingLearner, nameof(RegisterLearnerV1), nameof(CreateLearnerV1));
+        }
+        else
+        {
+            await bus.Send(new CreateLearnerV2(Data.CorrelationId, message.FirstName, message.LastName, message.Email,
+                message.PreferredName));
+            MoveTo(RegistrationStage.AwaitingLearner, nameof(RegisterLearnerV1), nameof(CreateLearnerV2));
+        }
     }
 
     /// <summary>Records the learner ID and asks Develop to build a plan using the saved learning goal.</summary>

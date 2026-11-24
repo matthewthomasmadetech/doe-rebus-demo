@@ -19,9 +19,10 @@ public static class RebusRoutes
             .Map<LearningPlanCreationFailed>(QueueNames.Orchestrator)
             .Map<AssessmentScheduled>(QueueNames.Orchestrator)
             .Map<AssessmentSchedulingFailed>(QueueNames.Orchestrator)
-            .Map<CreateLearnerV1>(QueueNames.Manage)
-            .Map<CreateLearningPlanV1>(QueueNames.Develop)
-            .Map<SendLearnerReminderV1>(QueueNames.Develop)
-            .Map<ScheduleAssessmentV1>(QueueNames.Take);
+            .Map<CreateLearnerV1>(QueueNames.CreateLearnerV1)
+            .Map<CreateLearnerV2>(QueueNames.CreateLearnerV2)
+            .Map<CreateLearningPlanV1>(QueueNames.CreateLearningPlanV1)
+            .Map<SendLearnerReminderV1>(QueueNames.SendLearnerReminderV1)
+            .Map<ScheduleAssessmentV1>(QueueNames.ScheduleAssessmentV1);
     }
 }

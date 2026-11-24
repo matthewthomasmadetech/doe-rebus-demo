@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <PackageReference Include="Rebus" />
+    <PackageReference Include="Rebus.AzureQueues" />
     <ProjectReference Include="../Contracts/Contracts.csproj" />
   </ItemGroup>
 </Project>
