@@ -1,0 +1,187 @@
+@page "/dashboard"
+@model RebusDemo.Orchestrator.Pages.DashboardModel
+@using RebusDemo.Orchestrator.Pages
+@{
+    var viewTitle = Model.ShowingErrors ? "Archived errors" : "Registration sagas";
+}
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@viewTitle · Rebus Orchestrator</title>
+    <link rel="stylesheet" href="~/dashboard.css" asp-append-version="true" />
+</head>
+<body>
+    <header class="topbar">
+        <div class="shell"><a asp-page="/Dashboard" class="brand">Rebus <span>Orchestrator</span></a></div>
+    </header>
+    <main class="shell">
+        <div class="page-heading">
+            <h1>Workflow dashboard</h1>
+            <a class="button secondary" asp-page="/Dashboard" asp-route-tab="@Model.Tab"
+               asp-route-query="@Model.Query" asp-route-status="@Model.Status" asp-route-p="@Model.Number"
+               asp-route-error="@Model.Error">Refresh</a>
+        </div>
+
+        <nav class="metrics" aria-label="Filter by status">
+            <a class="metric active" asp-page="/Dashboard" asp-route-status="active">
+                <span><i aria-hidden="true"></i> In progress</span><strong>@Model.Totals.Active</strong>
+            </a>
+            <a class="metric completed" asp-page="/Dashboard" asp-route-status="completed">
+                <span><i aria-hidden="true"></i> Completed</span><strong>@Model.Totals.Completed</strong>
+            </a>
+            <a class="metric failed" asp-page="/Dashboard" asp-route-status="failed">
+                <span><i aria-hidden="true"></i> Failed</span><strong>@Model.Totals.Failed</strong>
+            </a>
+            <a class="metric archived" asp-page="/Dashboard" asp-route-tab="errors">
+                <span><i aria-hidden="true"></i> Archived errors</span><strong>@Model.Totals.DeadLetters</strong>
+            </a>
+        </nav>
+
+        <section class="panel" aria-labelledby="table-heading">
+            <nav class="views" aria-label="Dashboard views">
+                <a asp-page="/Dashboard" aria-current="@(!Model.ShowingErrors ? "page" : null)">Sagas</a>
+                <a asp-page="/Dashboard" asp-route-tab="errors" aria-current="@(Model.ShowingErrors ? "page" : null)">Archived errors</a>
+            </nav>
+            <div class="panel-heading"><h2 id="table-heading">@viewTitle</h2></div>
+            <form class="filters" method="get" asp-page="/Dashboard">
+                <input asp-for="Tab" type="hidden" />
+                <div class="field search">
+                    <label asp-for="Query">Search</label>
+                    <input asp-for="Query" type="search" maxlength="128"
+                           placeholder="@(Model.ShowingErrors ? "Message type, source queue or ID" : "Correlation ID, learner ID or plan ID")" />
+                </div>
+                @if (!Model.ShowingErrors)
+                {
+                    <div class="field">
+                        <label asp-for="Status">Status</label>
+                        <select asp-for="Status">
+                            <option value="">All statuses</option>
+                            <option value="active">In progress</option>
+                            <option value="completed">Completed</option>
+                            <option value="failed">Failed</option>
+                        </select>
+                    </div>
+                }
+                <button class="button primary" type="submit">Apply filters</button>
+            </form>
+
+            @if (Model.ShowingErrors)
+            {
+                @if (Model.DeadLetters.Count == 0)
+                {
+                    <p class="empty">No archived errors found.</p>
+                }
+                else
+                {
+                    <div class="table-scroll" tabindex="0" role="region" aria-label="Archived error records">
+                        <table>
+                            <thead><tr><th>Message type</th><th>Source queue</th><th>Correlation ID</th><th>Archived (UTC)</th><th>Details</th></tr></thead>
+                            <tbody>
+                                @foreach (var row in Model.DeadLetters)
+                                {
+                                    <tr>
+                                        <td><strong title="@row.MessageType">@DashboardModel.ShortType(row.MessageType)</strong></td>
+                                        <td><span class="queue">@(row.SourceQueue ?? "Unknown")</span></td>
+                                        <td class="mono">@(row.CorrelationId ?? "—")</td>
+                                        <td class="timestamp">@DashboardModel.FormatTime(row.ArchivedAtUtc)</td>
+                                        <td><a asp-page="/Dashboard" asp-route-tab="errors" asp-route-query="@Model.Query"
+                                               asp-route-p="@Model.Number" asp-route-error="@row.Key" asp-fragment="archive-details">View details</a></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            }
+            else if (Model.Sagas.Count == 0)
+            {
+                <p class="empty">No registrations found.</p>
+            }
+            else
+            {
+                <div class="table-scroll" tabindex="0" role="region" aria-label="Registration saga records">
+                    <table>
+                        <thead><tr><th>Status</th><th>Correlation ID</th><th>Learner</th><th>Requested (UTC)</th><th>Outcome</th></tr></thead>
+                        <tbody>
+                            @foreach (var saga in Model.Sagas)
+                            {
+                                <tr>
+                                    <td><span class="status @DashboardModel.StageClass(saga.Stage)"><i aria-hidden="true"></i>@DashboardModel.StageLabel(saga.Stage)</span></td>
+                                    <td class="mono">@saga.CorrelationId</td>
+                                    <td class="mono">@(saga.LearnerId ?? "—")</td>
+                                    <td class="timestamp">@DashboardModel.FormatTime(saga.RequestedAtUtc)</td>
+                                    <td class="outcome">
+                                        @if (saga.FailureReason is { } reason)
+                                        {
+                                            <div>@reason</div>
+                                            @if (saga.FailedAtStage is { } stage)
+                                            {
+                                                <span class="muted">@DashboardModel.StageLabel(stage) · </span>
+                                            }
+                                            <a asp-page="/Dashboard" asp-route-tab="errors" asp-route-query="@saga.CorrelationId">Find errors</a>
+                                        }
+                                        else if (saga.CompletedAtUtc is { } completedAt)
+                                        {
+                                            <div>@DashboardModel.FormatTime(completedAt) UTC</div>
+                                            <span class="mono muted">@saga.AssessmentId</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="mono muted">@(saga.LearningPlanId ?? "—")</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+
+            @if (Model.Number > 1 || Model.HasNextPage)
+            {
+                <nav class="pagination" aria-label="Results pages">
+                    @if (Model.Number > 1)
+                    {
+                        <a class="button secondary" asp-page="/Dashboard" asp-route-tab="@Model.Tab" asp-route-status="@Model.Status"
+                           asp-route-query="@Model.Query" asp-route-p="@(Model.Number - 1)">Previous</a>
+                    }
+                    <span>Page @Model.Number</span>
+                    @if (Model.HasNextPage)
+                    {
+                        <a class="button secondary" asp-page="/Dashboard" asp-route-tab="@Model.Tab" asp-route-status="@Model.Status"
+                           asp-route-query="@Model.Query" asp-route-p="@(Model.Number + 1)">Next</a>
+                    }
+                </nav>
+            }
+        </section>
+
+        @if (Model.SelectedError is { } error)
+        {
+            <section class="panel details" id="archive-details" aria-labelledby="detail-heading">
+                <div class="page-heading">
+                    <h2 id="detail-heading">@DashboardModel.ShortType(error.Message.MessageType)</h2>
+                    <a class="button secondary" asp-page="/Dashboard" asp-route-tab="errors" asp-route-query="@Model.Query"
+                       asp-route-p="@Model.Number">Close details</a>
+                </div>
+                <dl class="metadata">
+                    <div><dt>Source queue</dt><dd>@(error.Message.SourceQueue ?? "Unknown")</dd></div>
+                    <div><dt>Message ID</dt><dd class="mono">@(error.Message.MessageId ?? "—")</dd></div>
+                    <div><dt>Correlation ID</dt><dd class="mono">@(error.Message.CorrelationId ?? "—")</dd></div>
+                    <div><dt>Sent (UTC)</dt><dd>@(error.SentAtUtc is { } sent ? DashboardModel.FormatTime(sent) : "—")</dd></div>
+                    <div><dt>Archived (UTC)</dt><dd>@DashboardModel.FormatTime(error.Message.ArchivedAtUtc)</dd></div>
+                </dl>
+                <h3>Exception details</h3>
+                <pre>@(error.ErrorDetails ?? "No exception details were included.")</pre>
+                <details><summary>Original headers</summary><pre>@error.Headers</pre></details>
+                <details><summary>Original body</summary><pre>@(error.Body.Length > 0 ? error.Body : "Empty body")</pre></details>
+            </section>
+        }
+        else if (Model.ShowingErrors && !string.IsNullOrEmpty(Model.Error))
+        {
+            <p class="panel empty" id="archive-details">This archived message could not be found.</p>
+        }
+    </main>
+</body>
+</html>

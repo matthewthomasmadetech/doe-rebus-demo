@@ -8,13 +8,17 @@ The workflow starts at [`POST /learners/register`](src/Orchestrator/RegisterLear
 
 Manage also sends a standalone reminder command directly to Develop's queue. Develop handles it using a regular Rebus message handler. [Send a standalone reminder](#send-a-standalone-reminder)
 
+The orchestrator runs a second Rebus listener to archive messages from `rebus-errors` in SQL Server. [Inspect archived errors](#inspect-archived-errors)
+
+The orchestrator also serves a read-only dashboard for registration status and archived messages. It reads the same SQL database as the saga and archive listener. [Open the dashboard](#open-the-dashboard)
+
 All four services load the same message-to-queue map at startup. Each service uses the map when sending and selects its own input queue and handlers. [Shared Rebus routes](src/Messaging/RebusRoutes.cs)
 
 ## Projects and entry points
 
 | Project | Startup | Input queue | Responsibility |
 | --- | --- | --- | --- |
-| Orchestrator | [Program.cs](src/Orchestrator/Program.cs) | `orchestrator` | Hosts the HTTP API and the [registration saga](src/Orchestrator/LearnerRegistrationSaga.cs). |
+| Orchestrator | [Program.cs](src/Orchestrator/Program.cs) | `orchestrator`, `rebus-errors` | Hosts the HTTP API, [registration saga](src/Orchestrator/LearnerRegistrationSaga.cs), dead-letter archive, and [dashboard](src/Orchestrator/Pages/Dashboard.cshtml). |
 | Manage | [Program.cs](src/Manage/Program.cs) | `manage` | Creates demo learner IDs for the saga and exposes [`POST /learners/remind`](src/Manage/SendLearnerReminderEndpoint.cs). |
 | Develop | [Program.cs](src/Develop/Program.cs) | `develop` | Builds [learning plans](src/Develop/CreateLearningPlanHandler.cs) and handles [standalone reminders](src/Develop/SendLearnerReminderHandler.cs). |
 | Take | [Program.cs](src/Take/Program.cs) | `take` | Handles [`ScheduleAssessmentV1`](src/Take/ScheduleAssessmentHandler.cs) and returns an online assessment slot. |
@@ -39,7 +43,7 @@ docker compose run --rm sqlserver-init
 dotnet build RebusDemo.slnx
 ```
 
-The database initialization command is safe to rerun. On startup Rebus creates the input queues, the shared `rebus-errors` queue, and the `dbo.Sagas` and `dbo.SagaIndex` tables. Azurite and SQL Server keep their data in Docker volumes.
+The database initialization command is safe to rerun. Rebus creates the input queues, the shared `rebus-errors` queue, and the `dbo.Sagas` and `dbo.SagaIndex` tables. The orchestrator also creates `dbo.RebusDeadLetters` and `dbo.CompletedRegistrations` at startup. Azurite and SQL Server keep their data in Docker volumes.
 
 Run each application in its own terminal from the repository root.
 
@@ -51,6 +55,15 @@ dotnet run --no-build --project src/Orchestrator -- --urls http://127.0.0.1:5080
 ```
 
 Azurite listens on `127.0.0.1:10001` and SQL Server on `127.0.0.1:1433`. The defaults match the Compose file. Override the queue connection with `ConnectionStrings__AzureQueues` in all four applications. If you change `MSSQL_SA_PASSWORD` for Compose, set `ConnectionStrings__RebusSqlServer` in the orchestrator to the matching connection string. The checked-in credentials are for this local demo.
+
+## Open the dashboard
+
+Start the services as described above and open [http://127.0.0.1:5080/dashboard](http://127.0.0.1:5080/dashboard). The dashboard runs in the orchestrator on the same port as `POST /learners/register`.
+
+- **Sagas** shows the current stage for registrations in `dbo.Sagas`, including failed registrations and their reasons. The final assessment handler saves completed outcomes in `dbo.CompletedRegistrations` before Rebus removes the live saga. Completed outcomes are available for registrations that finish after this dashboard is installed.
+- **Archived errors** reads `dbo.RebusDeadLetters`. Search by correlation ID, message ID, message type, or source queue. Open **View details** to see the original headers, body, and exception. From a failed saga, **Find errors** opens the archive filtered to that registration.
+
+Use [Register a learner](#register-a-learner) for a completed row and [Demonstrate a failed saga](#demonstrate-a-failed-saga) for a failed row and its archived error. Click **Refresh** after the queue processing finishes. To see a live waiting stage, use the [restart recovery example](#demonstrate-restart-recovery) and open the dashboard while Develop is stopped and the orchestrator is still running.
 
 ## Register a learner
 
@@ -74,7 +87,7 @@ Set `Logging__Console__FormatterName=json` when launching a service to see the s
 | Orchestrator → Take | `ScheduleAssessmentV1` | |
 | Take → Orchestrator | `AssessmentScheduledV1` | `Completed` |
 
-The final log includes the learner, plan and assessment IDs and the assessment's UTC time. Rebus removes the saga and its correlation index when it completes.
+The final log includes the learner, plan and assessment IDs and the assessment's UTC time. The dashboard shows the saved completed outcome after Rebus removes the live saga and its correlation index.
 
 ## Send a standalone reminder
 
@@ -171,5 +184,21 @@ SQL
 ```
 
 Rebus stores handled message IDs and outgoing commands with the active SQL saga. If a queue delivery repeats, Rebus can replay the outgoing command. Service handlers derive the demo resource IDs from the correlation ID and Take derives its slot from the original request date. The saga checks its current stage before advancing on a reply with a new message ID. Every registration request starts a fresh workflow, and the demo service results are generated in the handlers without separate business databases.
+
+## Inspect archived errors
+
+Run the failed saga sample, then open **Archived errors** in the dashboard or look for `Archived` in the orchestrator log. Its second Rebus listener reads `rebus-errors` and saves the message ID, type, source queue, correlation ID, exception details, and timestamps in `dbo.RebusDeadLetters`. The full headers and raw message body are also saved, including bodies that couldn’t be deserialized. [Archive handler](src/Orchestrator/DeadLetters/DeadLetterMessageHandler.cs)
+
+Rebus removes the original message from the queue after the SQL write succeeds. If a write fails, the listener only logs the failure and retries the original delivery after a delay. Redelivery of a message already archived from the same source queue keeps a single row.
+
+```sh
+docker compose exec -T sqlserver bash -c '
+  exec /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -d RebusDemo' <<'SQL'
+SELECT TOP (10) MessageId, MessageType, SourceQueue, CorrelationId, ErrorDetails, SentAtUtc, ArchivedAtUtc
+FROM dbo.RebusDeadLetters
+ORDER BY ArchivedAtUtc DESC;
+GO
+SQL
+```
 
 Stop the applications with `Ctrl+C` and run `docker compose down` to stop the containers and retain their data volumes.

@@ -3,6 +3,7 @@ using Rebus.Handlers;
 using Rebus.Sagas;
 using Rebus.Sagas.Idempotent;
 using RebusDemo.Contracts;
+using RebusDemo.Orchestrator.Dashboard;
 
 namespace RebusDemo.Orchestrator;
 
@@ -13,7 +14,7 @@ namespace RebusDemo.Orchestrator;
 /// Rebus loads Data before each handler runs and saves it after the handler returns successfully.
 /// IdempotentSaga derives from Saga and lets Rebus retain outgoing commands for replay on redelivery.
 /// </remarks>
-public sealed class LearnerRegistrationSaga(IBus bus, ILogger<LearnerRegistrationSaga> logger)
+public sealed class LearnerRegistrationSaga(IBus bus, DashboardStore dashboard, ILogger<LearnerRegistrationSaga> logger)
     : IdempotentSaga<LearnerRegistrationSagaData>,
         IAmInitiatedBy<RegisterLearnerV1>,
         IHandleMessages<LearnerCreatedV1>,
@@ -76,11 +77,13 @@ public sealed class LearnerRegistrationSaga(IBus bus, ILogger<LearnerRegistratio
     }
 
     /// <summary>Completes the saga after Take confirms the assessment booking.</summary>
-    public Task Handle(AssessmentScheduledV1 message)
+    public async Task Handle(AssessmentScheduledV1 message)
     {
         if (!IsAtStage(RegistrationStage.AwaitingAssessment, nameof(AssessmentScheduledV1)))
-            return Task.CompletedTask;
+            return;
 
+        // Keep the completed outcome available for the dashboard before Rebus removes the live saga.
+        await dashboard.RecordCompletionAsync(Data, message);
         // Rebus removes the completed saga row and its index entry after successful handling.
         MarkAsComplete();
         logger.LogInformation("{PreviousStage} -> {Stage} on {MessageType}\n" +
@@ -88,7 +91,6 @@ public sealed class LearnerRegistrationSaga(IBus bus, ILogger<LearnerRegistratio
             "    Assessment {AssessmentId} at {ScheduledAtUtc:u}\n    Correlation {CorrelationId}",
             Data.Stage, RegistrationStage.Completed, nameof(AssessmentScheduledV1), Data.LearnerId,
             Data.LearningPlanId, message.AssessmentId, message.ScheduledAtUtc, Data.CorrelationId);
-        return Task.CompletedTask;
     }
 
     /// <summary>Fails the registration when Manage exhausts its learner creation attempts.</summary>
