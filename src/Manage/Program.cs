@@ -18,8 +18,12 @@ builder.Services.AddRebusHandler<CreateLearnerHandler>();
 builder.Services.AddRebus(configure => configure
     .Transport(transport => transport.UseAzureStorageQueues(storage, QueueNames.Manage))
     .Routing(RebusRoutes.Configure)
-    .Options(options => options.RetryStrategy(QueueNames.Errors, maxDeliveryAttempts: 5,
-        secondLevelRetriesEnabled: true, errorDetailsHeaderMaxLength: 4096)));
+    .Options(options =>
+    {
+        options.RetryStrategy(QueueNames.Errors, maxDeliveryAttempts: 5,
+            secondLevelRetriesEnabled: true, errorDetailsHeaderMaxLength: 4096);
+        options.ValidateMessageContracts();
+    }));
 
 var app = builder.Build();
 app.MapPost("/learners/remind", SendLearnerReminderEndpoint.SendAsync);

@@ -41,26 +41,32 @@ public sealed class CreateLearningPlanHandler(
 
         // Keep the plan ID and content stable across deliveries of this command.
         var planId = $"PLAN-{message.CorrelationId:N}";
+        var format = message.PreferredFormat ?? LearningPlanFormats.Online;
+        var practice = format == LearningPlanFormats.Workbook ? "Workbook practice" : "Guided practice";
         string[] modules = [
             "Baseline skills review",
-            $"Guided practice: {message.LearningGoal}",
+            $"{practice}: {message.LearningGoal}",
             "Independent practice and reflection"
         ];
 
         await bus.Send(new LearningPlanCreatedV1(message.CorrelationId, message.LearnerId, planId, modules));
         logger.LogInformation("Handled {Command} -> sent {Reply}\n" +
-            "    Plan {LearningPlanId} ({ModuleCount} modules)\n    Correlation {CorrelationId} | Message {MessageId}",
-            nameof(CreateLearningPlanV1), nameof(LearningPlanCreatedV1), planId, modules.Length,
+            "    Plan {LearningPlanId} ({ModuleCount} modules, {PlanFormat})\n    Correlation {CorrelationId} | Message {MessageId}",
+            nameof(CreateLearningPlanV1), nameof(LearningPlanCreatedV1), planId, modules.Length, format,
             message.CorrelationId, messageId);
     }
 
-    /// <summary>Reports exhausted retries to the saga and dead-letters the original command.</summary>
+    /// <summary>Reports a failed command to its saga and dead-letters the original command.</summary>
     public async Task Handle(IFailed<CreateLearningPlanV1> failure)
     {
         var correlationId = failure.Message.CorrelationId;
-        await bus.Send(new LearningPlanCreationFailedV1(correlationId, "Develop could not create the learning plan."));
+        if (correlationId != Guid.Empty)
+        {
+            await bus.Send(new LearningPlanCreationFailedV1(correlationId, "Develop could not create the learning plan."));
+            logger.LogWarning("Failed {Command} -> queued {Reply}\n    Correlation {CorrelationId}",
+                nameof(CreateLearningPlanV1), nameof(LearningPlanCreationFailedV1), correlationId);
+        }
+
         await bus.Advanced.TransportMessage.Deadletter(failure.ErrorDescription);
-        logger.LogWarning("Exhausted retries for {Command} -> queued {Reply}\n    Correlation {CorrelationId}",
-            nameof(CreateLearningPlanV1), nameof(LearningPlanCreationFailedV1), correlationId);
     }
 }

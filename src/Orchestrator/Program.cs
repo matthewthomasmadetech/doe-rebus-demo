@@ -32,6 +32,7 @@ builder.Services.AddRebus(configure => configure
     {
         // Rebus retries failed deliveries and forwards exhausted messages to the shared error queue.
         options.RetryStrategy(QueueNames.Errors, maxDeliveryAttempts: 5);
+        options.ValidateMessageContracts();
         // With IdempotentSaga<T>, Rebus stores handled message IDs and outgoing commands with the active saga.
         // If the same message is redelivered, Rebus can replay its outgoing commands from that history.
         options.EnableIdempotentSagas();

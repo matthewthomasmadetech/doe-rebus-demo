@@ -46,6 +46,7 @@ public sealed class LearnerRegistrationSaga(IBus bus, DashboardStore dashboard, 
 
         Data.CorrelationId = message.CorrelationId;
         Data.LearningGoal = message.LearningGoal;
+        Data.PreferredFormat = message.PreferredFormat;
         Data.RequestedAtUtc = message.RequestedAtUtc;
 
         // Send stages the command in the current Rebus delivery. The learner ID arrives in a separate reply.
@@ -60,7 +61,7 @@ public sealed class LearnerRegistrationSaga(IBus bus, DashboardStore dashboard, 
             return;
 
         Data.LearnerId = message.LearnerId;
-        await bus.Send(new CreateLearningPlanV1(Data.CorrelationId, message.LearnerId, Data.LearningGoal));
+        await bus.Send(new CreateLearningPlanV1(Data.CorrelationId, message.LearnerId, Data.LearningGoal, Data.PreferredFormat));
         MoveTo(RegistrationStage.AwaitingLearningPlan, nameof(LearnerCreatedV1), nameof(CreateLearningPlanV1));
     }
 

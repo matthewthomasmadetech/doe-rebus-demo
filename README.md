@@ -89,6 +89,20 @@ Set `Logging__Console__FormatterName=json` when launching a service to see the s
 
 The final log includes the learner, plan and assessment IDs and the assessment's UTC time. The dashboard shows the saved completed outcome after Rebus removes the live saga and its correlation index.
 
+## Try message validation
+
+The shared contracts use Data Annotations for rules such as a valid email, a 160-character learning goal limit, non-default IDs and timestamps, and a learning-plan reply with at least one module. Each application bus runs those rules after deserialization and before dispatching the message to its handler. [Registration contracts](src/Contracts/LearnerRegistrationV1.cs) · [Rebus validation step](src/Messaging/RebusMessageValidation.cs)
+
+`preferredFormat` is optional. Leave it out or set it to `null` for the default `online` plan. To request `workbook`, send the sample below and look for `workbook` in Develop's log.
+
+```sh
+curl -i http://127.0.0.1:5080/learners/register \
+  -H 'Content-Type: application/json' \
+  --data-binary @samples/register-learner-workbook.json
+```
+
+Change `preferredFormat` to `video` in a copy of the sample to see HTTP `400`. If an invalid message arrives directly on a queue, Rebus treats the validation failure as permanent and archives it through `rebus-errors`. A worker can also send a failure reply when the command includes a valid workflow correlation ID.
+
 ## Send a standalone reminder
 
 This example needs only Azurite, Manage and Develop. Start Azurite and build from the repository root.

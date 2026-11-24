@@ -14,6 +14,7 @@ public sealed class LearnerRegistrationSagaData : IdempotentSagaData
 
     // Later handlers need these request values after the original message has been consumed.
     public string LearningGoal { get; set; } = "";
+    public string? PreferredFormat { get; set; }
     public DateTimeOffset RequestedAtUtc { get; set; }
     public string? LearnerId { get; set; }
     public string? LearningPlanId { get; set; }

@@ -27,13 +27,17 @@ public sealed class ScheduleAssessmentHandler(IBus bus, ILogger<ScheduleAssessme
             message.CorrelationId);
     }
 
-    /// <summary>Reports exhausted retries to the saga and dead-letters the original command.</summary>
+    /// <summary>Reports a failed command to its saga and dead-letters the original command.</summary>
     public async Task Handle(IFailed<ScheduleAssessmentV1> failure)
     {
         var correlationId = failure.Message.CorrelationId;
-        await bus.Send(new AssessmentSchedulingFailedV1(correlationId, "Take could not schedule the assessment."));
+        if (correlationId != Guid.Empty)
+        {
+            await bus.Send(new AssessmentSchedulingFailedV1(correlationId, "Take could not schedule the assessment."));
+            logger.LogWarning("Failed {Command} -> queued {Reply}\n    Correlation {CorrelationId}",
+                nameof(ScheduleAssessmentV1), nameof(AssessmentSchedulingFailedV1), correlationId);
+        }
+
         await bus.Advanced.TransportMessage.Deadletter(failure.ErrorDescription);
-        logger.LogWarning("Exhausted retries for {Command} -> queued {Reply}\n    Correlation {CorrelationId}",
-            nameof(ScheduleAssessmentV1), nameof(AssessmentSchedulingFailedV1), correlationId);
     }
 }

@@ -24,13 +24,17 @@ public sealed class CreateLearnerHandler(IBus bus, ILogger<CreateLearnerHandler>
             nameof(CreateLearnerV1), nameof(LearnerCreatedV1), learnerId, message.CorrelationId);
     }
 
-    /// <summary>Reports exhausted retries to the saga and dead-letters the original command.</summary>
+    /// <summary>Reports a failed command to its saga and dead-letters the original command.</summary>
     public async Task Handle(IFailed<CreateLearnerV1> failure)
     {
         var correlationId = failure.Message.CorrelationId;
-        await bus.Send(new LearnerCreationFailedV1(correlationId, "Manage could not create the learner."));
+        if (correlationId != Guid.Empty)
+        {
+            await bus.Send(new LearnerCreationFailedV1(correlationId, "Manage could not create the learner."));
+            logger.LogWarning("Failed {Command} -> queued {Reply}\n    Correlation {CorrelationId}",
+                nameof(CreateLearnerV1), nameof(LearnerCreationFailedV1), correlationId);
+        }
+
         await bus.Advanced.TransportMessage.Deadletter(failure.ErrorDescription);
-        logger.LogWarning("Exhausted retries for {Command} -> queued {Reply}\n    Correlation {CorrelationId}",
-            nameof(CreateLearnerV1), nameof(LearnerCreationFailedV1), correlationId);
     }
 }
