@@ -2,6 +2,7 @@ using Rebus.Bus;
 using Rebus.Messages;
 using Rebus.Pipeline;
 using Rebus.Transport;
+using RebusDemo.Orchestrator.Registry;
 
 namespace RebusDemo.Orchestrator.Workflows;
 
@@ -14,9 +15,15 @@ internal sealed class WorkflowMessageStep(WorkflowStore store, WorkflowEngine en
     public async Task Process(IncomingStepContext context, Func<Task> next)
     {
         var message = context.Load<TransportMessage>();
-        if (message.Headers.TryGetValue(Headers.Type, out var messageType) && await store.IsReplyTriggerAsync(messageType))
+        var headers = message.Headers;
+
+        // A message with no workflow type continues, and the forwarder rejects it.
+        if (headers.TryGetValue(Headers.Type, out var messageType)
+            && headers.TryGetValue(WorkflowHeaders.WorkflowType, out var workflowType)
+            && await store.IsReplyTriggerAsync(workflowType, messageType))
         {
-            await engine.HandleReplyAsync(bus(), context.Load<ITransactionContext>(), messageType, message.Body);
+            await engine.HandleReplyAsync(bus(), context.Load<ITransactionContext>(), messageType, workflowType,
+                headers.GetValueOrDefault(Headers.ReturnAddress), message.Body);
             return;
         }
 

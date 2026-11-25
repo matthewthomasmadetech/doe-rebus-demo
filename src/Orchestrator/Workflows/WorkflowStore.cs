@@ -21,9 +21,20 @@ public sealed record TransitionSeed(
 
 internal sealed record WorkflowDefinition(string Name, string StartMessageType, string? StartSchema);
 
-internal sealed record Transition(string ToState, string? WhenPresent, string? SendMessageType, Dictionary<string, string>? SendMapping);
+internal sealed record Transition(
+    int TransitionId, string ToState, string? WhenPresent, string? SendMessageType, Dictionary<string, string>? SendMapping);
 
-internal sealed class WorkflowInstance(Guid correlationId, string workflowName, string state, JsonObject data)
+/// <summary>One receiver's answer to a fanned-out command.</summary>
+internal sealed record ReceiverReply(string Queue, string MessageType, bool Failed, string? Reason, int TransitionId);
+
+/// <summary>The receivers a command was sent to and the replies collected so far.</summary>
+internal sealed class PendingJoin(string[] queues)
+{
+    public string[] Queues { get; set; } = queues;
+    public List<ReceiverReply> Replies { get; set; } = [];
+}
+
+internal sealed class WorkflowInstance(Guid correlationId, string workflowName, string state, JsonObject data, PendingJoin? pending)
 {
     public Guid CorrelationId { get; } = correlationId;
     public string WorkflowName { get; } = workflowName;
@@ -31,6 +42,9 @@ internal sealed class WorkflowInstance(Guid correlationId, string workflowName, 
 
     /// <summary>Every property from the start request and each reply received so far.</summary>
     public JsonObject Data { get; } = data;
+
+    /// <summary>The receivers the workflow is waiting on, or null when it is not waiting for replies.</summary>
+    public PendingJoin? Pending { get; set; } = pending;
 }
 
 /// <summary>Reads and writes workflow definitions and instance state in SQL Server.</summary>
@@ -82,15 +96,18 @@ internal sealed class WorkflowStore(string connectionString)
                         Data nvarchar(max) NOT NULL,
                         FailedAtState nvarchar(100) NULL,
                         FailureReason nvarchar(max) NULL,
+                        Pending nvarchar(max) NULL,
                         StartedAtUtc datetime2(7) NOT NULL,
                         UpdatedAtUtc datetime2(7) NOT NULL,
                         CompletedAtUtc datetime2(7) NULL,
                         INDEX IX_WorkflowInstances_Started (StartedAtUtc)
                     );
+                IF COL_LENGTH(N'dbo.WorkflowInstances', N'Pending') IS NULL
+                    ALTER TABLE dbo.WorkflowInstances ADD Pending nvarchar(max) NULL;
             END TRY
             BEGIN CATCH
-                -- Another orchestrator may have created a table after our existence check.
-                IF ERROR_NUMBER() <> 2714
+                -- Another orchestrator may have changed a table after our existence checks.
+                IF ERROR_NUMBER() NOT IN (2705, 2714)
                     THROW;
             END CATCH;
             """;
@@ -161,12 +178,16 @@ internal sealed class WorkflowStore(string connectionString)
             : null;
     }
 
-    /// <summary>True when a workflow waits for this message type, so the orchestrator handles it itself.</summary>
-    public async Task<bool> IsReplyTriggerAsync(string messageType)
+    /// <summary>True when this workflow waits for a reply of this type, so the orchestrator handles it itself.</summary>
+    public async Task<bool> IsReplyTriggerAsync(string workflowType, string messageType)
     {
         await using var connection = await OpenAsync();
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT TOP 1 1 FROM dbo.WorkflowTransitions WHERE OnMessageType = @type AND FromState <> @new";
+        command.CommandText = """
+            SELECT TOP 1 1 FROM dbo.WorkflowTransitions
+            WHERE WorkflowName = @workflow AND OnMessageType = @type AND FromState <> @new
+            """;
+        command.Parameters.AddWithValue("@workflow", workflowType);
         command.Parameters.AddWithValue("@type", messageType);
         command.Parameters.AddWithValue("@new", NewState);
         return await command.ExecuteScalarAsync() is not null;
@@ -194,14 +215,15 @@ internal sealed class WorkflowStore(string connectionString)
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            SELECT WorkflowName, State, Data FROM dbo.WorkflowInstances WITH (UPDLOCK, ROWLOCK)
+            SELECT WorkflowName, State, Data, Pending FROM dbo.WorkflowInstances WITH (UPDLOCK, ROWLOCK)
             WHERE CorrelationId = @id
             """;
         command.Parameters.Add("@id", SqlDbType.UniqueIdentifier).Value = correlationId;
         await using var reader = await command.ExecuteReaderAsync();
         return await reader.ReadAsync()
             ? new WorkflowInstance(correlationId, reader.GetString(0), reader.GetString(1),
-                (JsonObject)JsonNode.Parse(reader.GetString(2))!)
+                (JsonObject)JsonNode.Parse(reader.GetString(2))!,
+                reader.IsDBNull(3) ? null : JsonSerializer.Deserialize<PendingJoin>(reader.GetString(3)))
             : null;
     }
 
@@ -211,8 +233,8 @@ internal sealed class WorkflowStore(string connectionString)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = """
-            SELECT ToState, WhenPresent, SendMessageType, SendMapping FROM dbo.WorkflowTransitions
+        command.CommandText = $"""
+            SELECT {TransitionColumns} FROM dbo.WorkflowTransitions
             WHERE WorkflowName = @workflow AND FromState = @state AND OnMessageType = @type
             ORDER BY Priority, TransitionId
             """;
@@ -222,21 +244,38 @@ internal sealed class WorkflowStore(string connectionString)
         await using var reader = await command.ExecuteReaderAsync();
         var transitions = new List<Transition>();
         while (await reader.ReadAsync())
-            transitions.Add(new Transition(reader.GetString(0), reader.IsDBNull(1) ? null : reader.GetString(1),
-                reader.IsDBNull(2) ? null : reader.GetString(2),
-                reader.IsDBNull(3) ? null : JsonSerializer.Deserialize<Dictionary<string, string>>(reader.GetString(3))));
+            transitions.Add(ReadTransition(reader));
         return transitions;
     }
 
+    public async Task<Transition> GetTransitionAsync(SqlConnection connection, SqlTransaction transaction, int transitionId)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = $"SELECT {TransitionColumns} FROM dbo.WorkflowTransitions WHERE TransitionId = @id";
+        command.Parameters.AddWithValue("@id", transitionId);
+        await using var reader = await command.ExecuteReaderAsync();
+        await reader.ReadAsync();
+        return ReadTransition(reader);
+    }
+
+    private const string TransitionColumns = "TransitionId, ToState, WhenPresent, SendMessageType, SendMapping";
+
+    private static Transition ReadTransition(SqlDataReader reader) =>
+        new(reader.GetInt32(0), reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetString(2),
+            reader.IsDBNull(3) ? null : reader.GetString(3),
+            reader.IsDBNull(4) ? null : JsonSerializer.Deserialize<Dictionary<string, string>>(reader.GetString(4)));
+
+    /// <summary>Saves the instance's state, data and pending receivers. Pass the current state to record progress only.</summary>
     public async Task SaveInstanceAsync(
         SqlConnection connection, SqlTransaction transaction, WorkflowInstance instance, string newState,
-        string? failedAtState, string? failureReason)
+        string? failedAtState, string? failureReason, PendingJoin? pending)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
             UPDATE dbo.WorkflowInstances
-            SET State = @state, Data = @data, FailedAtState = @failedAt, FailureReason = @reason,
+            SET State = @state, Data = @data, FailedAtState = @failedAt, FailureReason = @reason, Pending = @pending,
                 UpdatedAtUtc = SYSUTCDATETIME(),
                 CompletedAtUtc = CASE WHEN @state = @completed THEN SYSUTCDATETIME() ELSE CompletedAtUtc END
             WHERE CorrelationId = @id
@@ -246,6 +285,7 @@ internal sealed class WorkflowStore(string connectionString)
         command.Parameters.AddWithValue("@data", instance.Data.ToJsonString());
         command.Parameters.AddWithValue("@failedAt", (object?)failedAtState ?? DBNull.Value);
         command.Parameters.AddWithValue("@reason", (object?)failureReason ?? DBNull.Value);
+        command.Parameters.AddWithValue("@pending", pending is null ? DBNull.Value : JsonSerializer.Serialize(pending));
         command.Parameters.AddWithValue("@completed", CompletedState);
         await command.ExecuteNonQueryAsync();
     }

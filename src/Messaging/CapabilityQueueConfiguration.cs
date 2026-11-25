@@ -19,6 +19,7 @@ public static class CapabilityQueueConfiguration
                 options.RetryStrategy(QueueNames.Errors, maxDeliveryAttempts: 5,
                     secondLevelRetriesEnabled: true, errorDetailsHeaderMaxLength: 4096);
                 options.ValidateMessageContracts();
+                options.PropagateWorkflowType();
             });
     }
 }

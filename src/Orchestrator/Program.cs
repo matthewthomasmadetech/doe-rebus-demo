@@ -36,11 +36,11 @@ builder.Services.AddRebus((configure, services) => configure
     .Transport(transport => transport.UseAzureStorageQueues(storage, Queues.Orchestrator))
     .Routing(routing =>
     {
-        // Commands the orchestrator sends are routed from the registry. A message arriving from a service is
-        // forwarded to its registered queue, or continues to the workflow engine when none is registered.
-        routing.Register(_ => new RegistryRouter(registry));
+        // A message arriving from a service is forwarded to every queue registered for its workflow type and
+        // message type, or continues to the workflow engine when none is registered. Commands the engine sends
+        // choose their queues from the same registry, so this bus needs no routing map of its own.
         // A message that fails its registered contract is moved to the error queue instead of being forwarded.
-        routing.AddTransportMessageForwarder(message => RegistryRouter.ForwardRegisteredAsync(registry, message),
+        routing.AddTransportMessageForwarder(message => MessageForwarder.ForwardAsync(registry, message),
             ErrorBehavior.Normal);
     })
     // The orchestrator sends registered message types as raw JSON, so it needs no compiled contract types.

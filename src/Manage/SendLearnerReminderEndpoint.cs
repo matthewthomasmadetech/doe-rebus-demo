@@ -1,5 +1,6 @@
 using Rebus.Bus;
 using RebusDemo.Contracts;
+using RebusDemo.Messaging;
 
 namespace RebusDemo.Manage;
 
@@ -19,7 +20,9 @@ internal static class SendLearnerReminderEndpoint
 
         // The caller can use this ID to find the matching log entry in Develop.
         var reminderId = Guid.NewGuid();
-        await bus.Send(new SendLearnerReminderV1(reminderId, learnerId));
+        // This action has no workflow instance, so the sender names its workflow type explicitly.
+        await bus.Send(new SendLearnerReminderV1(reminderId, learnerId),
+            new Dictionary<string, string> { [WorkflowHeaders.WorkflowType] = "send-learner-reminder" });
         logger.LogInformation("Queued {Command} for Develop\n    Learner {LearnerId} | Reminder {ReminderId}",
             nameof(SendLearnerReminderV1), learnerId, reminderId);
 
