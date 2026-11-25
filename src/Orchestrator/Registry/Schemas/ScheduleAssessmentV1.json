@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ScheduleAssessmentV1",
+  "type": "object",
+  "required": ["CorrelationId", "LearnerId", "LearningPlanId", "RequestedAtUtc"],
+  "properties": {
+    "CorrelationId": { "type": "string", "format": "uuid", "not": { "const": "00000000-0000-0000-0000-000000000000" } },
+    "LearnerId": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "LearningPlanId": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "RequestedAtUtc": { "type": "string", "format": "date-time", "not": { "pattern": "^0001-01-01" } }
+  }
+}

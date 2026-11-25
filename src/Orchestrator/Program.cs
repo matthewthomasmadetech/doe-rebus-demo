@@ -36,7 +36,9 @@ builder.Services.AddRebus(configure => configure
         // Commands the orchestrator sends are routed from the registry. Messages arriving from a
         // service are forwarded to their registered queue, or handled here when none is registered.
         routing.Register(_ => new RegistryRouter(registry));
-        routing.AddTransportMessageForwarder(message => RegistryRouter.ForwardRegisteredAsync(registry, message));
+        // A message that fails its registered contract is moved to the error queue instead of being forwarded.
+        routing.AddTransportMessageForwarder(message => RegistryRouter.ForwardRegisteredAsync(registry, message),
+            ErrorBehavior.Normal);
     })
     .Serialization(StatusUpdateCompatibility.Configure)
     // Rebus creates both tables at startup. Sagas holds serialized workflow state and SagaIndex

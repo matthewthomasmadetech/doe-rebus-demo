@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CreateLearnerV1",
+  "type": "object",
+  "required": ["CorrelationId", "FirstName", "LastName", "Email"],
+  "properties": {
+    "CorrelationId": { "type": "string", "format": "uuid", "not": { "const": "00000000-0000-0000-0000-000000000000" } },
+    "FirstName": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "LastName": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "Email": { "type": "string", "maxLength": 254, "pattern": "^[^@\\s]+@[^@\\s]+$" }
+  }
+}
