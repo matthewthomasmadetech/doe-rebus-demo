@@ -2,6 +2,7 @@ using Rebus.Config;
 using Rebus.Pipeline;
 using Rebus.Retry;
 using Rebus.Retry.Simple;
+using Rebus.Routing.TransportMessages;
 using Rebus.Sagas.Idempotent;
 using RebusDemo.Contracts;
 using RebusDemo.Logging;
@@ -9,6 +10,7 @@ using RebusDemo.Messaging;
 using RebusDemo.Orchestrator;
 using RebusDemo.Orchestrator.Dashboard;
 using RebusDemo.Orchestrator.DeadLetters;
+using RebusDemo.Orchestrator.Registry;
 
 var builder = WebApplication.CreateBuilder(args);
 var storage = builder.Configuration.GetConnectionString("AzureQueues") ?? "UseDevelopmentStorage=true";
@@ -19,12 +21,23 @@ builder.Logging.AddDemoConsole();
 builder.Services.AddRazorPages();
 builder.Services.AddSingleton(new DashboardStore(sql));
 
+// The registry in SQL Server decides which queue receives each message type.
+var registry = new RouteRegistry(sql);
+var seedRoutes = builder.Configuration.GetSection("Registry:Routes").Get<RouteRegistration[]>() ?? [];
+builder.Services.AddSingleton(registry);
+
 // Rebus discovers all the saga's message handlers from this one DI registration.
 builder.Services.AddRebusHandler<LearnerRegistrationSaga>();
 builder.Services.AddRebus(configure => configure
     // The orchestrator reads both registration commands and service replies from this queue.
     .Transport(transport => transport.UseAzureStorageQueues(storage, QueueNames.Orchestrator))
-    .Routing(RebusRoutes.Configure)
+    .Routing(routing =>
+    {
+        // Commands the orchestrator sends are routed from the registry. Messages arriving from a
+        // service are forwarded to their registered queue, or handled here when none is registered.
+        routing.Register(_ => new RegistryRouter(registry));
+        routing.AddTransportMessageForwarder(message => RegistryRouter.ForwardRegisteredAsync(registry, message));
+    })
     .Serialization(StatusUpdateCompatibility.Configure)
     // Rebus creates both tables at startup. Sagas holds serialized workflow state and SagaIndex
     // maps a correlation value to that state so replies can resume a workflow after a restart.
@@ -63,6 +76,7 @@ builder.Services.AddRebus((configure, services) =>
 var app = builder.Build();
 await app.Services.GetRequiredService<DeadLetterStore>().EnsureTableExistsAsync();
 await app.Services.GetRequiredService<DashboardStore>().EnsureTableExistsAsync();
+await registry.EnsureTableExistsAsync(seedRoutes);
 app.UseStaticFiles();
 app.MapRazorPages();
 app.MapPost("/learners/register", RegisterLearnerEndpoint.RegisterAsync);

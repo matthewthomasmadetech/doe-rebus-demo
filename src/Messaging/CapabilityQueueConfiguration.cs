@@ -12,7 +12,7 @@ public static class CapabilityQueueConfiguration
     {
         return configure
             .Transport(transport => transport.UseAzureStorageQueues(storage, queueName))
-            .Routing(RebusRoutes.Configure)
+            .Routing(RebusRoutes.ToOrchestrator)
             .Options(options =>
             {
                 // Second-level retries let the handler report the failure before dead-lettering the command.
