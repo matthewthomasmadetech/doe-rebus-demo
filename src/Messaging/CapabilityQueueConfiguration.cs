@@ -7,7 +7,7 @@ namespace RebusDemo.Messaging;
 /// <summary>Applies the common Rebus configuration for a worker's capability queue.</summary>
 public static class CapabilityQueueConfiguration
 {
-    /// <summary>Sets the incoming queue, shared outgoing routes, validation and retry policy.</summary>
+    /// <summary>Reads from a capability queue and sends application messages through the orchestrator.</summary>
     public static RebusConfigurer UseCapabilityQueue(this RebusConfigurer configure, string storage, string queueName)
     {
         return configure

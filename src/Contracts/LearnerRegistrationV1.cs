@@ -36,4 +36,5 @@ public sealed record ScheduleAssessmentV1(
     [property: RequiredValue] Guid CorrelationId,
     [property: Required, StringLength(80)] string LearnerId,
     [property: Required, StringLength(80)] string LearningPlanId,
-    [property: RequiredValue] DateTimeOffset RequestedAtUtc) : IValidatedMessage;
+    [property: RequiredValue] DateTimeOffset RequestedAtUtc,
+    bool NotifySaga = true) : IValidatedMessage;

@@ -50,7 +50,7 @@ public sealed class LearnerRegistrationSaga(IBus bus, DashboardStore dashboard, 
         Data.RequestedAtUtc = message.RequestedAtUtc;
 
         // A preferred name requires V2. Both versions send the same LearnerCreated status update.
-        // Rebus routes the command to the queue for its concrete type.
+        // Both commands enter the orchestrator queue before the transport forwarder sends them to Manage.
         if (string.IsNullOrWhiteSpace(message.PreferredName))
         {
             await bus.Send(new CreateLearnerV1(Data.CorrelationId, message.FirstName, message.LastName, message.Email));

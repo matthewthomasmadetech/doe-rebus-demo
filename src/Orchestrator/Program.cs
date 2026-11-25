@@ -2,6 +2,7 @@ using Rebus.Config;
 using Rebus.Pipeline;
 using Rebus.Retry;
 using Rebus.Retry.Simple;
+using Rebus.Routing.TransportMessages;
 using Rebus.Sagas.Idempotent;
 using RebusDemo.Contracts;
 using RebusDemo.Logging;
@@ -9,22 +10,34 @@ using RebusDemo.Messaging;
 using RebusDemo.Orchestrator;
 using RebusDemo.Orchestrator.Dashboard;
 using RebusDemo.Orchestrator.DeadLetters;
+using RebusDemo.Orchestrator.Routing;
 
 var builder = WebApplication.CreateBuilder(args);
 var storage = builder.Configuration.GetConnectionString("AzureQueues") ?? "UseDevelopmentStorage=true";
 var sql = builder.Configuration.GetConnectionString("RebusSqlServer")
     ?? throw new InvalidOperationException("Configure the RebusSqlServer connection string.");
+var routeRefreshSeconds = builder.Configuration.GetValue("Routing:RefreshIntervalSeconds", 5);
+ArgumentOutOfRangeException.ThrowIfNegativeOrZero(routeRefreshSeconds);
 
 builder.Logging.AddDemoConsole();
 builder.Services.AddRazorPages();
 builder.Services.AddSingleton(new DashboardStore(sql));
+builder.Services.AddSingleton(services => new CapabilityRouteCache(sql,
+    TimeSpan.FromSeconds(routeRefreshSeconds), services.GetRequiredService<ILogger<CapabilityRouteCache>>()));
+builder.Services.AddHostedService(services => services.GetRequiredService<CapabilityRouteCache>());
+builder.Services.AddSingleton<CapabilityMessageForwarder>();
 
 // Rebus discovers all the saga's message handlers from this one DI registration.
 builder.Services.AddRebusHandler<LearnerRegistrationSaga>();
-builder.Services.AddRebus(configure => configure
-    // The orchestrator reads both registration commands and service replies from this queue.
+builder.Services.AddRebus((configure, services) => configure
+    // This is the entry queue for worker commands, saga initiation, and saga status updates.
     .Transport(transport => transport.UseAzureStorageQueues(storage, QueueNames.Orchestrator))
-    .Routing(RebusRoutes.Configure)
+    .Routing(routing =>
+    {
+        RebusRoutes.Configure(routing);
+        var forwarder = services.GetRequiredService<CapabilityMessageForwarder>();
+        routing.AddTransportMessageForwarder(forwarder.RouteAsync, ErrorBehavior.Normal);
+    })
     // Rebus creates both tables at startup. Sagas holds serialized workflow state and SagaIndex
     // maps a correlation value to that state so replies can resume a workflow after a restart.
     .Sagas(sagas => sagas.StoreInSqlServer(sql, "Sagas", "SagaIndex"))
@@ -62,6 +75,7 @@ builder.Services.AddRebus((configure, services) =>
 var app = builder.Build();
 await app.Services.GetRequiredService<DeadLetterStore>().EnsureTableExistsAsync();
 await app.Services.GetRequiredService<DashboardStore>().EnsureTableExistsAsync();
+await app.Services.GetRequiredService<CapabilityRouteCache>().InitializeAsync(app.Lifetime.ApplicationStopping);
 app.UseStaticFiles();
 app.MapRazorPages();
 app.MapPost("/learners/register", RegisterLearnerEndpoint.RegisterAsync);

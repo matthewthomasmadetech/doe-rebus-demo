@@ -1,4 +1,5 @@
 using Rebus.Bus;
+using Rebus.Messages;
 using RebusDemo.Contracts;
 
 namespace RebusDemo.Manage;
@@ -19,9 +20,10 @@ internal static class SendLearnerReminderEndpoint
 
         // The caller can use this ID to find the matching log entry in Develop.
         var reminderId = Guid.NewGuid();
-        await bus.Send(new SendLearnerReminderV1(reminderId, learnerId));
-        logger.LogInformation("Queued {Command} for Develop\n    Learner {LearnerId} | Reminder {ReminderId}",
-            nameof(SendLearnerReminderV1), learnerId, reminderId);
+        await bus.Send(new SendLearnerReminderV1(reminderId, learnerId),
+            new Dictionary<string, string> { [Headers.CorrelationId] = reminderId.ToString() });
+        logger.LogInformation("Queued {Command} to {DestinationQueue}\n    Learner {LearnerId} | Reminder {ReminderId}",
+            nameof(SendLearnerReminderV1), QueueNames.Orchestrator, learnerId, reminderId);
 
         return Results.Accepted(value: new { reminderId });
     }
