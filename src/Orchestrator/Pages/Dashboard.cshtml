@@ -2,7 +2,7 @@
 @model RebusDemo.Orchestrator.Pages.DashboardModel
 @using RebusDemo.Orchestrator.Pages
 @{
-    var viewTitle = Model.ShowingErrors ? "Archived errors" : "Registration sagas";
+    var viewTitle = Model.ShowingErrors ? "Archived errors" : "Workflows";
 }
 <!doctype html>
 <html lang="en">
@@ -41,7 +41,7 @@
 
         <section class="panel" aria-labelledby="table-heading">
             <nav class="views" aria-label="Dashboard views">
-                <a asp-page="/Dashboard" aria-current="@(!Model.ShowingErrors ? "page" : null)">Sagas</a>
+                <a asp-page="/Dashboard" aria-current="@(!Model.ShowingErrors ? "page" : null)">Workflows</a>
                 <a asp-page="/Dashboard" asp-route-tab="errors" aria-current="@(Model.ShowingErrors ? "page" : null)">Archived errors</a>
             </nav>
             <div class="panel-heading"><h2 id="table-heading">@viewTitle</h2></div>
@@ -50,7 +50,7 @@
                 <div class="field search">
                     <label asp-for="Query">Search</label>
                     <input asp-for="Query" type="search" maxlength="128"
-                           placeholder="@(Model.ShowingErrors ? "Message type, source queue or ID" : "Correlation ID, learner ID or plan ID")" />
+                           placeholder="@(Model.ShowingErrors ? "Message type, source queue or ID" : "Correlation ID, workflow name or any value in the workflow")" />
                 </div>
                 @if (!Model.ShowingErrors)
                 {
@@ -95,41 +95,40 @@
                     </div>
                 }
             }
-            else if (Model.Sagas.Count == 0)
+            else if (Model.Workflows.Count == 0)
             {
-                <p class="empty">No registrations found.</p>
+                <p class="empty">No workflows found.</p>
             }
             else
             {
-                <div class="table-scroll" tabindex="0" role="region" aria-label="Registration saga records">
+                <div class="table-scroll" tabindex="0" role="region" aria-label="Workflow records">
                     <table>
-                        <thead><tr><th>Status</th><th>Correlation ID</th><th>Learner</th><th>Requested (UTC)</th><th>Outcome</th></tr></thead>
+                        <thead><tr><th>Status</th><th>Correlation ID</th><th>Workflow</th><th>Started (UTC)</th><th>Outcome</th></tr></thead>
                         <tbody>
-                            @foreach (var saga in Model.Sagas)
+                            @foreach (var workflow in Model.Workflows)
                             {
                                 <tr>
-                                    <td><span class="status @DashboardModel.StageClass(saga.Stage)"><i aria-hidden="true"></i>@DashboardModel.StageLabel(saga.Stage)</span></td>
-                                    <td class="mono">@saga.CorrelationId</td>
-                                    <td class="mono">@(saga.LearnerId ?? "—")</td>
-                                    <td class="timestamp">@DashboardModel.FormatTime(saga.RequestedAtUtc)</td>
+                                    <td><span class="status @DashboardModel.StateClass(workflow.State)"><i aria-hidden="true"></i>@DashboardModel.StateLabel(workflow.State)</span></td>
+                                    <td class="mono">@workflow.CorrelationId</td>
+                                    <td class="mono">@workflow.WorkflowName</td>
+                                    <td class="timestamp">@DashboardModel.FormatTime(workflow.StartedAtUtc)</td>
                                     <td class="outcome">
-                                        @if (saga.FailureReason is { } reason)
+                                        @if (workflow.FailureReason is { } reason)
                                         {
                                             <div>@reason</div>
-                                            @if (saga.FailedAtStage is { } stage)
+                                            @if (workflow.FailedAtState is { } failedAt)
                                             {
-                                                <span class="muted">@DashboardModel.StageLabel(stage) · </span>
+                                                <span class="muted">@DashboardModel.StateLabel(failedAt) · </span>
                                             }
-                                            <a asp-page="/Dashboard" asp-route-tab="errors" asp-route-query="@saga.CorrelationId">Find errors</a>
+                                            <a asp-page="/Dashboard" asp-route-tab="errors" asp-route-query="@workflow.CorrelationId">Find errors</a>
                                         }
-                                        else if (saga.CompletedAtUtc is { } completedAt)
+                                        else if (workflow.CompletedAtUtc is { } completedAt)
                                         {
                                             <div>@DashboardModel.FormatTime(completedAt) UTC</div>
-                                            <span class="mono muted">@saga.AssessmentId</span>
                                         }
                                         else
                                         {
-                                            <span class="mono muted">@(saga.LearningPlanId ?? "—")</span>
+                                            <span class="muted">—</span>
                                         }
                                     </td>
                                 </tr>

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RegisterLearnerV1",
+  "type": "object",
+  "required": ["FirstName", "LastName", "Email", "LearningGoal"],
+  "properties": {
+    "FirstName": { "type": "string", "maxLength": 80, "pattern": "\\S" },
+    "LastName": { "type": "string", "maxLength": 80, "pattern": "\\S" },
+    "Email": { "type": "string", "maxLength": 254, "pattern": "^[^@\\s]+@[^@\\s]+$" },
+    "LearningGoal": { "type": "string", "maxLength": 160, "pattern": "\\S" },
+    "PreferredFormat": { "enum": ["online", "workbook", null] },
+    "PreferredName": { "type": ["string", "null"], "maxLength": 80 }
+  }
+}

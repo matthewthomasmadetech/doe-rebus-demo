@@ -18,7 +18,7 @@ public sealed class LearnerCreation(IBus bus, ILogger<LearnerCreation> logger)
             commandName, nameof(LearnerCreated), learnerId, correlationId, preferredName is not null);
     }
 
-    /// <summary>Reports failure to the saga and dead-letters the original command for inspection.</summary>
+    /// <summary>Reports failure to the workflow and dead-letters the original command for inspection.</summary>
     public async Task FailAsync(Guid correlationId, string commandName, string errorDescription)
     {
         if (correlationId != Guid.Empty)

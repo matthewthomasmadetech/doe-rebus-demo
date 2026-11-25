@@ -17,7 +17,7 @@ public sealed class DashboardModel(DashboardStore store) : PageModel
 
     internal bool ShowingErrors => Tab == "errors";
     internal DashboardTotals Totals { get; private set; } = new(0, 0, 0, 0);
-    internal IReadOnlyList<SagaRow> Sagas { get; private set; } = [];
+    internal IReadOnlyList<WorkflowRow> Workflows { get; private set; } = [];
     internal IReadOnlyList<DeadLetterRow> DeadLetters { get; private set; } = [];
     internal DeadLetterDetails? SelectedError { get; private set; }
     internal bool HasNextPage { get; private set; }
@@ -25,7 +25,7 @@ public sealed class DashboardModel(DashboardStore store) : PageModel
     public async Task OnGetAsync(CancellationToken cancellation)
     {
         Response.Headers.CacheControl = "no-store";
-        Tab = ShowingErrors ? "errors" : "sagas";
+        Tab = ShowingErrors ? "errors" : "workflows";
         Status = Status is "active" or "completed" or "failed" ? Status : "";
         Query = Query?.Trim() ?? "";
         Query = Query[..Math.Min(Query.Length, 128)];
@@ -45,30 +45,26 @@ public sealed class DashboardModel(DashboardStore store) : PageModel
         }
         else
         {
-            var rows = await store.GetSagasAsync(Query, Status, offset, PageSize + 1, cancellation);
+            var rows = await store.GetWorkflowsAsync(Query, Status, offset, PageSize + 1, cancellation);
             HasNextPage = rows.Count > PageSize;
-            Sagas = rows.Take(PageSize).ToList();
+            Workflows = rows.Take(PageSize).ToList();
         }
     }
 
     internal static string FormatTime(DateTimeOffset value) =>
         value.ToUniversalTime().ToString("dd MMM yyyy, HH:mm:ss", CultureInfo.InvariantCulture);
 
-    internal static string StageLabel(RegistrationStage stage) => stage switch
+    /// <summary>Turns a state name such as AwaitingLearningPlan into "Awaiting learning plan".</summary>
+    internal static string StateLabel(string state)
     {
-        RegistrationStage.New => "New",
-        RegistrationStage.AwaitingLearner => "Awaiting learner",
-        RegistrationStage.AwaitingLearningPlan => "Awaiting learning plan",
-        RegistrationStage.AwaitingAssessment => "Awaiting assessment",
-        RegistrationStage.Completed => "Completed",
-        RegistrationStage.Failed => "Failed",
-        _ => $"Stage {(int)stage}"
-    };
+        var words = System.Text.RegularExpressions.Regex.Replace(state, "(?<=[a-z])(?=[A-Z])", " ");
+        return char.ToUpperInvariant(words[0]) + words[1..].ToLowerInvariant();
+    }
 
-    internal static string StageClass(RegistrationStage stage) => stage switch
+    internal static string StateClass(string state) => state switch
     {
-        RegistrationStage.Completed => "completed",
-        RegistrationStage.Failed => "failed",
+        "Completed" => "completed",
+        "Failed" => "failed",
         _ => "active"
     };
 

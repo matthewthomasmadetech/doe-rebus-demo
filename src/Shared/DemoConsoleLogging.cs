@@ -25,7 +25,7 @@ internal static class DemoConsoleLogging
     }
 }
 
-/// <summary>Gives the demo's message handlers, saga and endpoint a distinct console prefix.</summary>
+/// <summary>Gives the demo's message handlers, workflow engine and endpoint a distinct console prefix.</summary>
 internal sealed class WorkflowConsoleFormatter(IHostEnvironment environment)
     : ConsoleFormatter(FormatterName)
 {

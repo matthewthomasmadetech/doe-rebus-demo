@@ -9,7 +9,6 @@
     <PackageVersion Include="Rebus" Version="8.9.2" />
     <PackageVersion Include="Rebus.AzureQueues" Version="4.1.0" />
     <PackageVersion Include="Rebus.ServiceProvider" Version="10.8.0" />
-    <PackageVersion Include="Rebus.SqlServer" Version="8.4.2" />
     <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
   </ItemGroup>
 </Project>

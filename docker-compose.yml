@@ -29,7 +29,7 @@ services:
       start_period: 10s
 
   sqlserver-init:
-    # This one-shot service creates the database. The orchestrator creates the saga tables through Rebus.
+    # This one-shot service creates the database. The orchestrator creates its own tables at startup.
     image: mcr.microsoft.com/mssql/server:2022-latest
     depends_on:
       sqlserver:

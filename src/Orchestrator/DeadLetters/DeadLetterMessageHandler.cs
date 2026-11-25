@@ -2,7 +2,6 @@ using Rebus.Messages;
 using Rebus.Pipeline;
 using Rebus.Retry;
 using Rebus.Transport;
-using RebusDemo.Contracts;
 
 namespace RebusDemo.Orchestrator.DeadLetters;
 
@@ -25,7 +24,7 @@ internal sealed class DeadLetterMessageHandler(
         transactionContext.SetResult(commit: false, ack: false);
 
         logger.LogWarning("Retrying archive of {MessageId} from {Queue} in {DelaySeconds} seconds. {Reason}",
-            message.Headers.GetValueOrDefault(Headers.MessageId), QueueNames.Errors, RetryDelay.TotalSeconds,
+            message.Headers.GetValueOrDefault(Headers.MessageId), Queues.Errors, RetryDelay.TotalSeconds,
             exception.Message);
 
         await Task.Delay(RetryDelay, lifetime.ApplicationStopping);

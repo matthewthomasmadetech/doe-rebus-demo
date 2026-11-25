@@ -56,7 +56,7 @@ public sealed class CreateLearningPlanHandler(
             message.CorrelationId, messageId);
     }
 
-    /// <summary>Reports a failed command to its saga and dead-letters the original command.</summary>
+    /// <summary>Reports a failed command to its workflow and dead-letters the original command.</summary>
     public async Task Handle(IFailed<CreateLearningPlanV1> failure)
     {
         var correlationId = failure.Message.CorrelationId;

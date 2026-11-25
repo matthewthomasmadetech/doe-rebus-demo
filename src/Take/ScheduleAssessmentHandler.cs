@@ -27,7 +27,7 @@ public sealed class ScheduleAssessmentHandler(IBus bus, ILogger<ScheduleAssessme
             message.CorrelationId);
     }
 
-    /// <summary>Reports a failed command to its saga and dead-letters the original command.</summary>
+    /// <summary>Reports a failed command to its workflow and dead-letters the original command.</summary>
     public async Task Handle(IFailed<ScheduleAssessmentV1> failure)
     {
         var correlationId = failure.Message.CorrelationId;

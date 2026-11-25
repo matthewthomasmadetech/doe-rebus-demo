@@ -2,7 +2,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace RebusDemo.Contracts;
 
-// Each status update reports a command's outcome and carries its correlation ID back to the saga.
+// Each status update reports a command's outcome and carries its correlation ID back to the orchestrator.
 
 /// <summary>Gives the orchestrator the learner ID needed for the remaining steps.</summary>
 public sealed record LearnerCreated(
